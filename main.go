@@ -5,34 +5,33 @@ import (
 	"encoding/json"
 	"fmt"
 
-	// "errors"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/openvex/go-vex/pkg/vex"
 )
 
 /*
-	TODO: Return patch report
+	TODO: Patch all local images and overwrite current tag
 	TODO: Scan tool, return vulns wit sev.
 	TODO: Run mcp server from a container to avoid having to install/config tools
 */
 
-type Copa struct {
+type Ver struct {
 	Version string `json:"version" jsonschema:"the version of the copa cli"`
 }
 
-type CopaPatchParams struct {
+type PatchParams struct {
 	Image    string `json:"image" jsonschema:"the image reference of the container being patched"`
 	PatchTag string `json:"patchtag" jsonschema:"the new tag for the patched image"`
+	Push     bool   `json:"push" jsonschema:"push patched image to destination registry"`
 }
 
-func CopaHelp(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[Copa]) (*mcp.CallToolResultFor[any], error) {
+func Version(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[Ver]) (*mcp.CallToolResultFor[any], error) {
 	cmd := exec.Command("copa", "--version")
 	output, err := cmd.Output()
 	if err != nil {
@@ -44,23 +43,39 @@ func CopaHelp(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolPa
 	}, nil
 }
 
-func CopaPatch(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[CopaPatchParams]) (*mcp.CallToolResultFor[any], error) {
+func Patch(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[PatchParams]) (*mcp.CallToolResultFor[any], error) {
 	tmpDir := os.TempDir()
 	reportPath := filepath.Join(tmpDir, "report.json")
 
-	baseArgs := []string{
+	trivyArgs := []string{
 		"image",
 		"--vuln-type", "os",
 		"--ignore-unfixed",
 		"-f", "json",
 		"-o", reportPath,
 	}
-	args := append(baseArgs, params.Arguments.Image)
+	args := append(trivyArgs, params.Arguments.Image)
 
-	cmd := exec.Command("trivy", args...)
-	err := cmd.Run()
+	trivyCmd := exec.Command("trivy", args...)
+	var stderrTrivy strings.Builder
+	trivyCmd.Stderr = &stderrTrivy
+
+	cc.Log(ctx, &mcp.LoggingMessageParams{
+		Data:   "executing: " + strings.Join(append([]string{"trivy "}, trivyArgs...), " "),
+		Level:  "debug",
+		Logger: "copapatch",
+	})
+
+	err := trivyCmd.Run()
 	if err != nil {
-		log.Fatal(err)
+		exitCode := ""
+		if exitError, ok := err.(*exec.ExitError); ok {
+			exitCode = fmt.Sprintf(" (exit code %d)", exitError.ExitCode())
+		}
+		errorMsg := fmt.Sprintf("trivy command failed%s: %v|n%s", exitCode, err, stderrTrivy.String())
+		return &mcp.CallToolResultFor[any]{
+			Content: []mcp.Content{&mcp.TextContent{Text: errorMsg}},
+		}, fmt.Errorf(errorMsg)
 	}
 
 	vexPath := filepath.Join(tmpDir, "vex.json")
@@ -72,19 +87,29 @@ func CopaPatch(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolP
 		"--output", vexPath,
 	}
 
-	log.Printf("Executing: %s", strings.Join(append([]string{"copa"}, copaArgs...), " "))
+	if params.Arguments.Push {
+		copaArgs = append(copaArgs, "--push")
+	}
 
-	// TODO: Capture error message details from stdout
-	// TODO: Support --push
+	cc.Log(ctx, &mcp.LoggingMessageParams{
+		Data:   "Executing: " + strings.Join(append([]string{"copa "}, copaArgs...), " "),
+		Level:  "debug",
+		Logger: "copapatch",
+	})
+
 	copaCmd := exec.Command("copa", copaArgs...)
+	var stderr strings.Builder
+	copaCmd.Stderr = &stderr
 	err = copaCmd.Run()
 	if err != nil {
+		exitCode := ""
 		if exitError, ok := err.(*exec.ExitError); ok {
-			log.Printf("patching was not successful. Copa exited with code %d: %v\n", exitError.ExitCode(), err)
-		} else {
-			log.Printf("pacthing was not successful: %v\n", err)
+			exitCode = fmt.Sprintf(" (exit code %d)", exitError.ExitCode())
 		}
-		log.Fatal(err)
+		errorMsg := fmt.Sprintf("Copa command failed%s: %v\n%s", exitCode, err, stderr.String())
+		return &mcp.CallToolResultFor[any]{
+			Content: []mcp.Content{&mcp.TextContent{Text: errorMsg}},
+		}, fmt.Errorf(errorMsg)
 	}
 
 	vexData, err := os.ReadFile(vexPath)
@@ -117,6 +142,16 @@ func CopaPatch(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolP
 	text = append(text, fmt.Sprintf("vulns fixed: %d, packages updated: %d", fixedCount, subcomponentCount))
 	text = append(text, "new patched image: "+patchedImage)
 
+	err = os.Remove(vexPath)
+	if err != nil {
+		log.Fatalf("error deleting file: %v", vexPath)
+	}
+
+	err = os.Remove(reportPath)
+	if err != nil {
+		log.Fatalf("error deleting file: %v", reportPath)
+	}
+
 	return &mcp.CallToolResultFor[any]{
 		Content: []mcp.Content{&mcp.TextContent{Text: strings.Join(text, "\n")}},
 	}, nil
@@ -126,8 +161,8 @@ func main() {
 	// Create a server with a single tool.
 	server := mcp.NewServer(&mcp.Implementation{Name: "", Version: "v1.0.0"}, nil)
 
-	mcp.AddTool(server, &mcp.Tool{Name: "copahelp", Description: "Copacetic automated container pactching"}, CopaHelp)
-	mcp.AddTool(server, &mcp.Tool{Name: "copapatch", Description: "Pacth container image with copacetic"}, CopaPatch)
+	mcp.AddTool(server, &mcp.Tool{Name: "version", Description: "Copacetic automated container pactching"}, Version)
+	mcp.AddTool(server, &mcp.Tool{Name: "patch", Description: "Pacth container image with copacetic"}, Patch)
 	// Run the server over stdin/stdout, until the client disconnects
 	if err := server.Run(context.Background(), mcp.NewStdioTransport()); err != nil {
 		log.Fatal(err)

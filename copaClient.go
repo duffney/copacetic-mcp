@@ -1,11 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log"
-	// "os"
-	"bufio"
 	"os/exec"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -14,9 +13,16 @@ import (
 func main() {
 	ctx := context.Background()
 
-	client := mcp.NewClient(&mcp.Implementation{Name: "mcp-client", Version: "v1.0.0"}, nil)
+	client := mcp.NewClient(
+		&mcp.Implementation{Name: "mcp-client", Version: "v1.0.0"},
+		&mcp.ClientOptions{
+			LoggingMessageHandler: func(ctx context.Context, session *mcp.ClientSession, params *mcp.LoggingMessageParams) {
+				fmt.Printf("[server log][%s] %v\n", params.Level, params.Data)
+			},
+		},
+	)
 
-	cmd := exec.Command("/home/jduffney/projects/mcp-go-sdk-examples/myserver")
+	cmd := exec.Command("/home/jduffney/github/copacetic-mcp/myserver")
 	// Capture server's stderr for logging
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
@@ -39,17 +45,26 @@ func main() {
 	}
 	defer session.Close()
 
-	// call greet
+	// Enable receiving log messages from the server
+	session.SetLevel(ctx, &mcp.SetLevelParams{Level: "debug"})
+
 	params := &mcp.CallToolParams{
-		Name:      "copapatch",
-		Arguments: map[string]any{"image": "alpine:3.17", "patchtag": "mcp"},
+		Name:      "patch",
+		Arguments: map[string]any{"image": "alpine:3.17", "patchtag": "mcp", "push": false},
+		// Arguments: map[string]any{"image": "alpine:3.17", "patchtag": "mcp"},
 	}
 	res, err := session.CallTool(ctx, params)
 	if err != nil {
-		log.Fatal("CallTool failed: %v", err)
+		log.Fatalf("CallTool failed: %v", err)
 	}
 	if res.IsError {
-		log.Fatal("tool failed")
+		// Print error content if available
+		for _, c := range res.Content {
+			if text, ok := c.(*mcp.TextContent); ok {
+				log.Fatalf("tool failed: %s", text.Text)
+			}
+		}
+		log.Fatal("tool failed with unknown error")
 	}
 	for _, c := range res.Content {
 		fmt.Println(c.(*mcp.TextContent).Text)
