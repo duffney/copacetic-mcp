@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/openvex/go-vex/pkg/vex"
 )
@@ -19,6 +20,7 @@ import (
 	TODO: Patch all local images and overwrite current tag
 	TODO: Scan tool, return vulns wit sev.
 	TODO: Run mcp server from a container to avoid having to install/config tools
+	TODO: Support multiplatform **
 */
 
 type Ver struct {
@@ -26,9 +28,11 @@ type Ver struct {
 }
 
 type PatchParams struct {
-	Image    string `json:"image" jsonschema:"the image reference of the container being patched"`
-	PatchTag string `json:"patchtag" jsonschema:"the new tag for the patched image"`
-	Push     bool   `json:"push" jsonschema:"push patched image to destination registry"`
+	Image string `json:"image" jsonschema:"the image reference of the container being patched"`
+	Tag   string `json:"patchtag" jsonschema:"the new tag for the patched image"`
+	Push  bool   `json:"push" jsonschema:"push patched image to destination registry"`
+	// Scan      bool     `json:"scan" jsonschema:"scan container image to generate vulnerability report using trivy"`
+	// Platforms []string `json:"platforms" jsonschema:"Target platform(s) for multi-arch images when no report directory is provided (e.g., linux/amd64,linux/arm64). Valid platforms: linux/amd64, linux/arm64, linux/riscv64, linux/ppc64le, linux/s390x, linux/386, linux/arm/v7, linux/arm/v6. If platform flag is used, only specified platforms are patched and the rest are preserved. If not specified, all platforms present in the image are patched"`
 }
 
 func Version(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[Ver]) (*mcp.CallToolResultFor[any], error) {
@@ -43,7 +47,21 @@ func Version(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolPar
 	}, nil
 }
 
+// TODO: feat: make images []string and loop through for patching in parallel
 func Patch(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[PatchParams]) (*mcp.CallToolResultFor[any], error) {
+	var tag, repository string
+	ref, err := name.ParseReference(params.Arguments.Image)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// TODO: support digests
+	if tagged, ok := ref.(name.Tag); ok {
+		tag = tagged.TagStr()
+		repository = tagged.Repository.RepositoryStr()
+		repository = strings.TrimPrefix(repository, "library/")
+	}
+
 	tmpDir := os.TempDir()
 	reportPath := filepath.Join(tmpDir, "report.json")
 
@@ -66,7 +84,7 @@ func Patch(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParam
 		Logger: "copapatch",
 	})
 
-	err := trivyCmd.Run()
+	err = trivyCmd.Run()
 	if err != nil {
 		exitCode := ""
 		if exitError, ok := err.(*exec.ExitError); ok {
@@ -83,8 +101,13 @@ func Patch(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParam
 		"patch",
 		"--report", reportPath,
 		"--image", params.Arguments.Image,
-		"--tag", params.Arguments.PatchTag,
 		"--output", vexPath,
+	}
+
+	if params.Arguments.Tag != "" {
+		copaArgs = append(copaArgs, "--tag", params.Arguments.Tag)
+	} else {
+		params.Arguments.Tag = tag + "-patched"
 	}
 
 	if params.Arguments.Push {
@@ -134,8 +157,7 @@ func Patch(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParam
 		}
 	}
 
-	imageName := strings.SplitN(params.Arguments.Image, ":", 2)[0]
-	patchedImage := imageName + ":" + params.Arguments.PatchTag
+	patchedImage := repository + ":" + params.Arguments.Tag
 
 	text := []string{}
 	text = append(text, "successfully patched image: "+params.Arguments.Image)
