@@ -50,7 +50,7 @@ func main() {
 
 	params := &mcp.CallToolParams{
 		Name:      "patch",
-		Arguments: map[string]any{"image": "alpine:3.17", "push": false},
+		Arguments: map[string]any{"image": "alpine:3.17", "push": false, "scan": false},
 		// Arguments: map[string]any{"image": "alpine:3.17", "patchtag": "mcp", "push": false},
 		// Arguments: map[string]any{"image": "alpine:3.17", "patchtag": "mcp"},
 	}

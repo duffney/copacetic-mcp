@@ -16,6 +16,31 @@ import (
 	"github.com/openvex/go-vex/pkg/vex"
 )
 
+const (
+	defaultReportFile = "report.json"
+	defaultVexFile    = "vex.json"
+	patchedSuffix     = "-patched"
+	// ExecutionMode modes
+	ModeUpdateAll         = "update-all"
+	ModeReportBased       = "report-based"
+	ModePlatformSelective = "mulit-platform"
+)
+
+type ExecutionMode string
+
+const ()
+
+func determineExecutionMode(params PatchParams) ExecutionMode {
+	switch {
+	case params.Scan:
+		return ModeReportBased
+	case len(params.Platforms) > 0:
+		return ModePlatformSelective
+	default:
+		return ModeUpdateAll
+	}
+}
+
 /*
 	TODO: Patch all local images and overwrite current tag
 	TODO: Scan tool, return vulns wit sev.
@@ -27,12 +52,24 @@ type Ver struct {
 	Version string `json:"version" jsonschema:"the version of the copa cli"`
 }
 
+type PatchResult struct {
+	OriginalImage       string
+	PatchedImage        string
+	ReportPath          string
+	VexPath             string
+	NumFixedVulns       int
+	UpdatedPackageCount int
+	ScanPerformed       bool
+	VexGenerated        bool
+}
+
+// TODO: Test scan false
 type PatchParams struct {
-	Image string `json:"image" jsonschema:"the image reference of the container being patched"`
-	Tag   string `json:"patchtag" jsonschema:"the new tag for the patched image"`
-	Push  bool   `json:"push" jsonschema:"push patched image to destination registry"`
-	// Scan      bool     `json:"scan" jsonschema:"scan container image to generate vulnerability report using trivy"`
-	// Platforms []string `json:"platforms" jsonschema:"Target platform(s) for multi-arch images when no report directory is provided (e.g., linux/amd64,linux/arm64). Valid platforms: linux/amd64, linux/arm64, linux/riscv64, linux/ppc64le, linux/s390x, linux/386, linux/arm/v7, linux/arm/v6. If platform flag is used, only specified platforms are patched and the rest are preserved. If not specified, all platforms present in the image are patched"`
+	Image     string   `json:"image" jsonschema:"the image reference of the container being patched"`
+	Tag       string   `json:"patchtag" jsonschema:"the new tag for the patched image"`
+	Push      bool     `json:"push" jsonschema:"push patched image to destination registry"`
+	Scan      bool     `json:"scan" jsonschema:"scan container image to generate vulnerability report using trivy"`
+	Platforms []string `json:"platforms" jsonschema:"Target platform(s) for multi-arch images when no report directory is provided (e.g., linux/amd64,linux/arm64). Valid platforms: linux/amd64, linux/arm64, linux/riscv64, linux/ppc64le, linux/s390x, linux/386, linux/arm/v7, linux/arm/v6. If platform flag is used, only specified platforms are patched and the rest are preserved. If not specified, all platforms present in the image are patched"`
 }
 
 func Version(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[Ver]) (*mcp.CallToolResultFor[any], error) {
@@ -49,21 +86,134 @@ func Version(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolPar
 
 // TODO: feat: make images []string and loop through for patching in parallel
 func Patch(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[PatchParams]) (*mcp.CallToolResultFor[any], error) {
-	var tag, repository string
-	ref, err := name.ParseReference(params.Arguments.Image)
+	// Input validation
+	if params.Arguments.Image == "" {
+		return &mcp.CallToolResultFor[any]{
+			Content: []mcp.Content{&mcp.TextContent{Text: "image parameter is required"}},
+		}, fmt.Errorf("image parameter is required")
+	}
+
+	// Determine execution mode
+	mode := determineExecutionMode(params.Arguments)
+	cc.Log(ctx, &mcp.LoggingMessageParams{
+		Data:   fmt.Sprintf("Using execution mode: %s", mode),
+		Level:  "debug",
+		Logger: "copapatch",
+	})
+
+	var reportPath string
+	var err error
+
+	if mode == ModeReportBased {
+		reportPath, err = runTrivy(ctx, cc, params.Arguments.Image)
+		if err != nil {
+			return &mcp.CallToolResultFor[any]{
+				Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
+			}, err
+		}
+	}
+
+	vexPath, patchedImage, err := runCopa(ctx, cc, params.Arguments, reportPath)
 	if err != nil {
-		log.Fatal(err)
+		return &mcp.CallToolResultFor[any]{
+			Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
+		}, err
 	}
 
-	// TODO: support digests
-	if tagged, ok := ref.(name.Tag); ok {
-		tag = tagged.TagStr()
-		repository = tagged.Repository.RepositoryStr()
-		repository = strings.TrimPrefix(repository, "library/")
+	var numFixedVulns, updatedPackageCount int
+	if vexPath != "" {
+		numFixedVulns, updatedPackageCount, err = parseVexDoc(vexPath)
+		if err != nil {
+			return &mcp.CallToolResultFor[any]{
+				Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("error parsing vex document: %v", err)}},
+			}, err
+		}
 	}
 
-	tmpDir := os.TempDir()
-	reportPath := filepath.Join(tmpDir, "report.json")
+	result := buildPatchResult(
+		params.Arguments.Image,
+		patchedImage,
+		reportPath,
+		vexPath,
+		numFixedVulns,
+		updatedPackageCount,
+		params.Arguments.Scan,
+	)
+
+	successMsg := formatPatchSuccess(result)
+
+	// Clean up temporary files (non-fatal errors)
+	if vexPath != "" {
+		if err := os.Remove(vexPath); err != nil {
+			cc.Log(ctx, &mcp.LoggingMessageParams{
+				Data:   fmt.Sprintf("warning: failed to delete vex file %s: %v", vexPath, err),
+				Level:  "warning",
+				Logger: "copapatch",
+			})
+		}
+	}
+
+	if reportPath != "" {
+		if err := os.Remove(reportPath); err != nil {
+			cc.Log(ctx, &mcp.LoggingMessageParams{
+				Data:   fmt.Sprintf("warning: failed to delete report file %s: %v", reportPath, err),
+				Level:  "warning",
+				Logger: "copapatch",
+			})
+		}
+	}
+
+	// return patchImage()
+	return &mcp.CallToolResultFor[any]{
+		Content: []mcp.Content{&mcp.TextContent{Text: successMsg}},
+	}, nil
+}
+
+// func patchImage(ctx context.Context, cc *mcp.ServerSession, params PatchParams, mode ExecutionMode) (*mcp.CallToolResultFor[any], error) {
+//
+// 	switch mode {
+// 	case ModeUpdateAll:
+// 		runCopa(ctx, cc, params)
+// 	}
+// }
+
+func buildPatchResult(originalImage, patchedImage, reportPath, vexPath string, numFixedVulns, updatedPackageCount int, scanPerformed bool) *PatchResult {
+	return &PatchResult{
+		OriginalImage:       originalImage,
+		PatchedImage:        patchedImage,
+		ReportPath:          reportPath,
+		VexPath:             vexPath,
+		NumFixedVulns:       numFixedVulns,
+		UpdatedPackageCount: updatedPackageCount,
+		ScanPerformed:       scanPerformed,
+		VexGenerated:        vexPath != "",
+	}
+}
+
+func formatPatchSuccess(result *PatchResult) string {
+	var lines []string
+	lines = append(lines, fmt.Sprintf("Successfully patched image: %s", result.OriginalImage))
+
+	if result.VexGenerated {
+		lines = append(lines, fmt.Sprintf("Vulnerabilities fixed: %d", result.NumFixedVulns))
+		lines = append(lines, fmt.Sprintf("Packages updated: %d", result.UpdatedPackageCount))
+	}
+
+	lines = append(lines, fmt.Sprintf("New patched image: %s", result.PatchedImage))
+
+	if result.ScanPerformed {
+		lines = append(lines, "✓ Vulnerability scan performed")
+	}
+
+	if result.VexGenerated {
+		lines = append(lines, "✓ VEX document generated")
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func runTrivy(ctx context.Context, cc *mcp.ServerSession, image string) (reportPath string, err error) {
+	reportPath = filepath.Join(os.TempDir(), defaultReportFile)
 
 	trivyArgs := []string{
 		"image",
@@ -72,7 +222,7 @@ func Patch(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParam
 		"-f", "json",
 		"-o", reportPath,
 	}
-	args := append(trivyArgs, params.Arguments.Image)
+	args := append(trivyArgs, image)
 
 	trivyCmd := exec.Command("trivy", args...)
 	var stderrTrivy strings.Builder
@@ -91,26 +241,44 @@ func Patch(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParam
 			exitCode = fmt.Sprintf(" (exit code %d)", exitError.ExitCode())
 		}
 		errorMsg := fmt.Sprintf("trivy command failed%s: %v|n%s", exitCode, err, stderrTrivy.String())
-		return &mcp.CallToolResultFor[any]{
-			Content: []mcp.Content{&mcp.TextContent{Text: errorMsg}},
-		}, fmt.Errorf(errorMsg)
+		return "", fmt.Errorf(errorMsg)
+	}
+	return reportPath, nil
+}
+
+func runCopa(ctx context.Context, cc *mcp.ServerSession, params PatchParams, reportPath string) (vexPath string, patchedImage string, err error) {
+	var tag, repository string
+	ref, err := name.ParseReference(params.Image)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to parse image reference %s: %w", params.Image, err)
 	}
 
-	vexPath := filepath.Join(tmpDir, "vex.json")
+	// TODO: support digests
+	if tagged, ok := ref.(name.Tag); ok {
+		tag = tagged.TagStr()
+		repository = tagged.Repository.RepositoryStr()
+		repository = strings.TrimPrefix(repository, "library/")
+	}
+
 	copaArgs := []string{
 		"patch",
-		"--report", reportPath,
-		"--image", params.Arguments.Image,
-		"--output", vexPath,
+		"--image", params.Image,
 	}
 
-	if params.Arguments.Tag != "" {
-		copaArgs = append(copaArgs, "--tag", params.Arguments.Tag)
+	// "VEX output requires a vulnerability report. If -r <report_file> flag is not specified (the "update all" mode), no VEX document is generated.
+	if reportPath != "" {
+		vexPath = filepath.Join(os.TempDir(), defaultVexFile)
+		copaArgs = append(copaArgs, "--report", reportPath)
+		copaArgs = append(copaArgs, "--output", vexPath)
+	}
+
+	if params.Tag != "" {
+		copaArgs = append(copaArgs, "--tag", params.Tag)
 	} else {
-		params.Arguments.Tag = tag + "-patched"
+		params.Tag = tag + patchedSuffix
 	}
 
-	if params.Arguments.Push {
+	if params.Push {
 		copaArgs = append(copaArgs, "--push")
 	}
 
@@ -130,53 +298,32 @@ func Patch(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParam
 			exitCode = fmt.Sprintf(" (exit code %d)", exitError.ExitCode())
 		}
 		errorMsg := fmt.Sprintf("Copa command failed%s: %v\n%s", exitCode, err, stderr.String())
-		return &mcp.CallToolResultFor[any]{
-			Content: []mcp.Content{&mcp.TextContent{Text: errorMsg}},
-		}, fmt.Errorf(errorMsg)
+		return "", "", fmt.Errorf(errorMsg)
 	}
+	return vexPath, repository + ":" + params.Tag, nil
+}
 
-	vexData, err := os.ReadFile(vexPath)
+func parseVexDoc(path string) (numFixedVulns, updatedPackageCount int, err error) {
+	vexData, err := os.ReadFile(path)
 	if err != nil {
-		log.Fatal(err)
+		return 0, 0, err
 	}
 
 	var doc vex.VEX
 
 	if err := json.Unmarshal(vexData, &doc); err != nil {
-		log.Fatal(err)
+		return 0, 0, err
 	}
-
-	var fixedCount, subcomponentCount int
 
 	for _, stmt := range doc.Statements {
 		if stmt.Status == vex.StatusFixed {
-			fixedCount++
+			numFixedVulns++
 			for _, product := range stmt.Products {
-				subcomponentCount += len(product.Subcomponents)
+				updatedPackageCount += len(product.Subcomponents)
 			}
 		}
 	}
-
-	patchedImage := repository + ":" + params.Arguments.Tag
-
-	text := []string{}
-	text = append(text, "successfully patched image: "+params.Arguments.Image)
-	text = append(text, fmt.Sprintf("vulns fixed: %d, packages updated: %d", fixedCount, subcomponentCount))
-	text = append(text, "new patched image: "+patchedImage)
-
-	err = os.Remove(vexPath)
-	if err != nil {
-		log.Fatalf("error deleting file: %v", vexPath)
-	}
-
-	err = os.Remove(reportPath)
-	if err != nil {
-		log.Fatalf("error deleting file: %v", reportPath)
-	}
-
-	return &mcp.CallToolResultFor[any]{
-		Content: []mcp.Content{&mcp.TextContent{Text: strings.Join(text, "\n")}},
-	}, nil
+	return numFixedVulns, updatedPackageCount, nil
 }
 
 func main() {
