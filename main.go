@@ -34,7 +34,7 @@ func determineExecutionMode(params PatchParams) ExecutionMode {
 	switch {
 	case params.Scan:
 		return ModeReportBased
-	case len(params.Platforms) > 0:
+	case len(params.Platform) > 0:
 		return ModePlatformSelective
 	default:
 		return ModeUpdateAll
@@ -45,7 +45,6 @@ func determineExecutionMode(params PatchParams) ExecutionMode {
 	TODO: Patch all local images and overwrite current tag
 	TODO: Scan tool, return vulns wit sev.
 	TODO: Run mcp server from a container to avoid having to install/config tools
-	TODO: Support multiplatform **
 */
 
 type Ver struct {
@@ -63,13 +62,12 @@ type PatchResult struct {
 	VexGenerated        bool
 }
 
-// TODO: Test scan false
 type PatchParams struct {
-	Image     string   `json:"image" jsonschema:"the image reference of the container being patched"`
-	Tag       string   `json:"patchtag" jsonschema:"the new tag for the patched image"`
-	Push      bool     `json:"push" jsonschema:"push patched image to destination registry"`
-	Scan      bool     `json:"scan" jsonschema:"scan container image to generate vulnerability report using trivy"`
-	Platforms []string `json:"platforms" jsonschema:"Target platform(s) for multi-arch images when no report directory is provided (e.g., linux/amd64,linux/arm64). Valid platforms: linux/amd64, linux/arm64, linux/riscv64, linux/ppc64le, linux/s390x, linux/386, linux/arm/v7, linux/arm/v6. If platform flag is used, only specified platforms are patched and the rest are preserved. If not specified, all platforms present in the image are patched"`
+	Image    string   `json:"image" jsonschema:"the image reference of the container being patched"`
+	Tag      string   `json:"patchtag" jsonschema:"the new tag for the patched image"`
+	Push     bool     `json:"push" jsonschema:"push patched image to destination registry"`
+	Scan     bool     `json:"scan" jsonschema:"scan container image to generate vulnerability report using trivy"`
+	Platform []string `json:"platform" jsonschema:"Target platform(s) for multi-arch images when no report directory is provided (e.g., linux/amd64,linux/arm64). Valid platforms: linux/amd64, linux/arm64, linux/riscv64, linux/ppc64le, linux/s390x, linux/386, linux/arm/v7, linux/arm/v6. If platform flag is used, only specified platforms are patched and the rest are preserved. If not specified, all platforms present in the image are patched"`
 }
 
 func Version(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[Ver]) (*mcp.CallToolResultFor[any], error) {
@@ -84,6 +82,7 @@ func Version(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolPar
 	}, nil
 }
 
+// TODO: feat: support/test out patching remote images
 // TODO: feat: make images []string and loop through for patching in parallel
 func Patch(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[PatchParams]) (*mcp.CallToolResultFor[any], error) {
 	// Input validation
@@ -101,81 +100,68 @@ func Patch(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParam
 		Logger: "copapatch",
 	})
 
-	var reportPath string
+	return patchImage(ctx, cc, params.Arguments, mode)
+}
+
+func patchImage(ctx context.Context, cc *mcp.ServerSession, params PatchParams, mode ExecutionMode) (*mcp.CallToolResultFor[any], error) {
+	var patchedImage, reportPath, vexPath string
+	var numFixedVulns, updatedPackageCount int
 	var err error
 
-	if mode == ModeReportBased {
-		reportPath, err = runTrivy(ctx, cc, params.Arguments.Image)
+	switch mode {
+	case ModeUpdateAll:
+		// TODO: Detect mulit-platform and update successMsg accordingly
+		// TODO: Add logs msgs when mulit-platform is detected
+		_, patchedImage, err = runCopa(ctx, cc, params, reportPath)
 		if err != nil {
-			return &mcp.CallToolResultFor[any]{
-				Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
-			}, err
+			log.Fatalf("copa patch all failed: %w", err)
 		}
-	}
+		//TODO: support mulit-platform to generate reports for specified platforms new case
+	case ModeReportBased:
+		reportPath, err = runTrivy(ctx, cc, params.Image)
+		if err != nil {
+			return nil, fmt.Errorf("trivy failed: %w", err)
+		}
 
-	vexPath, patchedImage, err := runCopa(ctx, cc, params.Arguments, reportPath)
-	if err != nil {
-		return &mcp.CallToolResultFor[any]{
-			Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
-		}, err
-	}
+		vexPath, patchedImage, err = runCopa(ctx, cc, params, reportPath)
+		if err != nil {
+			return nil, fmt.Errorf("copa failed: %w", err)
+		}
 
-	var numFixedVulns, updatedPackageCount int
-	if vexPath != "" {
 		numFixedVulns, updatedPackageCount, err = parseVexDoc(vexPath)
 		if err != nil {
-			return &mcp.CallToolResultFor[any]{
-				Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("error parsing vex document: %v", err)}},
-			}, err
+			return nil, fmt.Errorf("failed to parse vex document: %w", err)
+		}
+
+		if err := os.Remove(vexPath); err != nil {
+			return nil, fmt.Errorf("warning: failed to delete vex file %s: %v", vexPath, err)
+		}
+		if err := os.Remove(reportPath); err != nil {
+			return nil, fmt.Errorf("warning: failed to delete report file %s: %v", reportPath, err)
+		}
+	case ModePlatformSelective:
+		_, patchedImage, err = runCopa(ctx, cc, params, reportPath)
+		if err != nil {
+			return nil, fmt.Errorf("copa failed: %w", err)
 		}
 	}
 
 	result := buildPatchResult(
-		params.Arguments.Image,
+		params.Image,
 		patchedImage,
 		reportPath,
 		vexPath,
 		numFixedVulns,
 		updatedPackageCount,
-		params.Arguments.Scan,
+		params.Scan,
 	)
 
 	successMsg := formatPatchSuccess(result)
 
-	// Clean up temporary files (non-fatal errors)
-	if vexPath != "" {
-		if err := os.Remove(vexPath); err != nil {
-			cc.Log(ctx, &mcp.LoggingMessageParams{
-				Data:   fmt.Sprintf("warning: failed to delete vex file %s: %v", vexPath, err),
-				Level:  "warning",
-				Logger: "copapatch",
-			})
-		}
-	}
-
-	if reportPath != "" {
-		if err := os.Remove(reportPath); err != nil {
-			cc.Log(ctx, &mcp.LoggingMessageParams{
-				Data:   fmt.Sprintf("warning: failed to delete report file %s: %v", reportPath, err),
-				Level:  "warning",
-				Logger: "copapatch",
-			})
-		}
-	}
-
-	// return patchImage()
 	return &mcp.CallToolResultFor[any]{
 		Content: []mcp.Content{&mcp.TextContent{Text: successMsg}},
 	}, nil
 }
-
-// func patchImage(ctx context.Context, cc *mcp.ServerSession, params PatchParams, mode ExecutionMode) (*mcp.CallToolResultFor[any], error) {
-//
-// 	switch mode {
-// 	case ModeUpdateAll:
-// 		runCopa(ctx, cc, params)
-// 	}
-// }
 
 func buildPatchResult(originalImage, patchedImage, reportPath, vexPath string, numFixedVulns, updatedPackageCount int, scanPerformed bool) *PatchResult {
 	return &PatchResult{
@@ -280,6 +266,10 @@ func runCopa(ctx context.Context, cc *mcp.ServerSession, params PatchParams, rep
 
 	if params.Push {
 		copaArgs = append(copaArgs, "--push")
+	}
+
+	if len(params.Platform) > 0 {
+		copaArgs = append(copaArgs, "--platform", strings.Join(params.Platform, ","))
 	}
 
 	cc.Log(ctx, &mcp.LoggingMessageParams{
