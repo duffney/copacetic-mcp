@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/duffney/copacetic-mcp/internal/util"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/openvex/go-vex/pkg/vex"
@@ -47,6 +48,12 @@ func determineExecutionMode(params PatchParams) ExecutionMode {
 	TODO: Run mcp server from a container to avoid having to install/config tools
 */
 
+type CopaOptions struct {
+	ReportPath *string
+	Mode       ExecutionMode
+	Image      *string
+}
+
 type Ver struct {
 	Version string `json:"version" jsonschema:"the version of the copa cli"`
 }
@@ -82,7 +89,6 @@ func Version(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolPar
 	}, nil
 }
 
-// TODO: feat: support/test out patching remote images
 // TODO: feat: make images []string and loop through for patching in parallel
 func Patch(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[PatchParams]) (*mcp.CallToolResultFor[any], error) {
 	// Input validation
@@ -112,11 +118,29 @@ func patchImage(ctx context.Context, cc *mcp.ServerSession, params PatchParams, 
 	case ModeUpdateAll:
 		// TODO: Detect mulit-platform and update successMsg accordingly
 		// TODO: Add logs msgs when mulit-platform is detected
+		imageDetails, err := multiplatform.GetImageInfo(ctx, params.Image)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if imageDetails.IsLocal && imageDetails.IsMultiPlatform {
+			supportedPlatforms := strings.Join(multiplatform.GetAllSupportedPlatforms(), ", ")
+			cc.Log(ctx, &mcp.LoggingMessageParams{
+				Data:   fmt.Sprintf("Local multiplatform image detected (%s). Copa will patch all %d supported platforms: %s", imageDetails.CurrentPlatform, len(multiplatform.GetAllSupportedPlatforms()), supportedPlatforms),
+				Level:  "info",
+				Logger: "copapatch",
+			})
+		}
+
+		if !imageDetails.IsLocal && imageDetails.IsMultiPlatform {
+			// platformsToPatch := multiplatform.FilterSupportedPlatforms(imageDetails.CurrentPlatform)
+		}
+
 		_, patchedImage, err = runCopa(ctx, cc, params, reportPath)
 		if err != nil {
 			log.Fatalf("copa patch all failed: %w", err)
 		}
-		//TODO: support mulit-platform to generate reports for specified platforms new case
+
 	case ModeReportBased:
 		reportPath, err = runTrivy(ctx, cc, params.Image)
 		if err != nil {

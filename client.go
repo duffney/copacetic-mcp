@@ -49,9 +49,9 @@ func main() {
 	session.SetLevel(ctx, &mcp.SetLevelParams{Level: "debug"})
 
 	params := &mcp.CallToolParams{
-		Name:      "patch",
-		Arguments: map[string]any{"image": "alpine:3.17", "push": false, "scan": false, "platform": []string{"linux/amd64"}},
-		// Arguments: map[string]any{"image": "alpine:3.17", "patchtag": "mcp", "push": false},
+		Name: "patch",
+		// Arguments: map[string]any{"image": "alpine:3.17", "push": false, "scan": false, "platform": []string{"linux/amd64"}},
+		Arguments: map[string]any{"image": "alpine:3.17", "patchtag": "mcp", "push": false},
 		// Arguments: map[string]any{"image": "alpine:3.17", "patchtag": "mcp"},
 	}
 	res, err := session.CallTool(ctx, params)
