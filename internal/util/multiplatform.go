@@ -4,6 +4,7 @@ package multiplatform
 import (
 	"context"
 	"fmt"
+	"runtime"
 
 	"github.com/docker/docker/client"
 )
@@ -25,7 +26,7 @@ var CopaSupportedPlatforms = []string{
 type ImageInfo struct {
 	IsMultiPlatform bool
 	IsLocal         bool
-	CurrentPlatform string // Only available for local images (e.g., "linux/amd64")
+	Platform        []string // Available platforms (e.g., ["linux/amd64", "linux/arm64"])
 }
 
 // GetImageInfo checks if the given image reference supports multiple platforms
@@ -73,8 +74,9 @@ func checkLocalImageInfo(ctx context.Context, cli *client.Client, imageRef strin
 		return nil, err
 	}
 
+	platform := fmt.Sprintf("%s/%s", inspect.Os, inspect.Architecture)
 	info := &ImageInfo{
-		CurrentPlatform: fmt.Sprintf("%s/%s", inspect.Os, inspect.Architecture),
+		Platform: []string{platform}, // Local images have a single platform
 	}
 
 	// Check if the image has a descriptor with manifest list media type
@@ -94,6 +96,33 @@ func checkRemoteImageInfo(ctx context.Context, cli *client.Client, imageRef stri
 
 	info := &ImageInfo{
 		IsMultiPlatform: isManifestListMediaType(distInspect.Descriptor.MediaType),
+	}
+
+	// Extract platform information from the distribution inspect result
+	if len(distInspect.Platforms) > 0 {
+		var platforms []string
+		for _, platform := range distInspect.Platforms {
+			// Skip platforms with empty OS or Architecture
+			if platform.OS == "" || platform.Architecture == "" || platform.OS == "unknown" || platform.Architecture == "unknown" {
+				continue
+			}
+			platformStr := fmt.Sprintf("%s/%s", platform.OS, platform.Architecture)
+			if platform.Variant != "" {
+				platformStr = fmt.Sprintf("%s/%s", platformStr, platform.Variant)
+			}
+			platforms = append(platforms, platformStr)
+		}
+		if len(platforms) > 0 {
+			info.Platform = platforms
+		} else {
+			// Fall back to current runtime platform if no valid platforms found
+			currentPlatform := fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
+			info.Platform = []string{currentPlatform}
+		}
+	} else {
+		// Fall back to current runtime platform if no platforms are available
+		currentPlatform := fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
+		info.Platform = []string{currentPlatform}
 	}
 
 	return info, nil
