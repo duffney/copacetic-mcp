@@ -52,13 +52,78 @@ cd copacetic-mcp
 make build
 ```
 
+## Configuration
+
+### VSCode Setup
+
+To use copacetic-mcp with VSCode and MCP-compatible tools, add the following configuration to your VSCode `settings.json`:
+
+```json
+{
+  "mcp.servers": {
+    "copacetic-mcp": {
+      "command": "/path/to/copacetic-mcp-server",
+      "args": [],
+      "env": {}
+    }
+  }
+}
+```
+
+Replace `/path/to/copacetic-mcp-server` with the actual path to your copacetic-mcp server binary.
+
+#### Alternative: Using with Claude Desktop
+
+You can also configure copacetic-mcp for use with Claude Desktop by adding it to your MCP configuration file:
+
+**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "copacetic-mcp": {
+      "command": "/path/to/copacetic-mcp-server",
+      "args": []
+    }
+  }
+}
+```
+
 ## Development
 
 ### Prerequisites
 
 - Go 1.20 or later
-- [Copacetic](https://github.com/project-copacetic/copacetic) installed
+- [Copacetic](https://github.com/project-copacetic/copacetic) CLI installed
 - [Trivy](https://github.com/aquasecurity/trivy) installed
+- Docker with virtualization emulation support (required for container operations)
+
+#### Copacetic CLI Requirements
+
+Copacetic requires the following to be installed and available:
+
+- **Docker**: Container runtime for image operations
+- **Buildkit**: Advanced build features (included with recent Docker versions)
+- **Container Registry Access**: For pulling and pushing patched images
+
+#### Docker Virtualization Emulation
+
+For multi-platform container patching, Docker must support virtualization emulation:
+
+- **Linux**: Ensure QEMU user-mode emulation is available for cross-platform support
+- **macOS**: Docker Desktop includes virtualization emulation by default
+- **Windows**: Docker Desktop with WSL2 backend recommended for best compatibility
+
+To verify Docker virtualization support:
+
+```bash
+# Check available platforms
+docker buildx ls
+
+# Verify QEMU emulation (Linux)
+docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+```
 
 ### Building
 
