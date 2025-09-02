@@ -22,7 +22,7 @@ func main() {
 		},
 	)
 
-	cmd := exec.Command("/home/jduffney/github/copacetic-mcp/myserver")
+	cmd := exec.Command("/home/jduffney/github/copacetic-mcp/bin/copacetic-mcp-server")
 	// Capture server's stderr for logging
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {

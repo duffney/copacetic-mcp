@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"strings"
 
 	"github.com/docker/docker/client"
 )
 
 // CopaSupportedPlatforms lists all platforms that Copa can patch
 // Based on Copa documentation: https://project-copacetic.github.io/copacetic/website/multiplatform-patching
+// TODO: mv to copa internal pkg
 var CopaSupportedPlatforms = []string{
 	"linux/amd64",
 	"linux/arm64",
@@ -176,4 +178,21 @@ func GetAllSupportedPlatforms() []string {
 	supported := make([]string, len(CopaSupportedPlatforms))
 	copy(supported, CopaSupportedPlatforms)
 	return supported
+}
+
+func PlatformToArch(platform string) string {
+	parts := strings.Split(platform, "/")
+	if len(parts) < 2 {
+		return platform // fallback if invalid format
+	}
+
+	arch := parts[1] // e.g., "amd64", "arm", "arm64"
+
+	if len(parts) > 2 {
+		// Handle cases like linux/arm/v6, linux/arm/v7
+		variant := parts[2]
+		return arch + "-" + variant
+	}
+
+	return arch
 }
