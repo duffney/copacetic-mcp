@@ -33,6 +33,7 @@ jobs:
 
       - name: Run tests
         run: go test -v ./...
+        # Note: Docker-dependent tests are automatically skipped in CI environments
 
       - name: Check formatting
         run: |

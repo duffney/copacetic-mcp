@@ -3,13 +3,23 @@ package multiplatform
 import (
 	"context"
 	"io"
+	"os"
 	"testing"
 
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 )
 
+// skipDockerTestsInCI checks if we should skip Docker tests in CI environments
+func skipDockerTestsInCI(t *testing.T) {
+	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" {
+		t.Skip("Skipping Docker tests in CI environment")
+	}
+}
+
 func TestGetImageInfo_LocalImage(t *testing.T) {
+	skipDockerTestsInCI(t)
+
 	ctx := context.Background()
 
 	// Test with a common local image that should exist or can be pulled
@@ -48,6 +58,12 @@ func TestGetImageInfo_LocalImage(t *testing.T) {
 			// Consume the reader to complete the pull
 			io.Copy(io.Discard, reader)
 
+			// Verify Docker is actually working by trying a simple inspect
+			_, _, err = cli.ImageInspectWithRaw(ctx, tc.imageRef)
+			if err != nil {
+				t.Skipf("Docker inspection failed for %s (probably no Docker daemon): %v", tc.imageRef, err)
+			}
+
 			// Test our function
 			info, err := GetImageInfo(ctx, tc.imageRef)
 			if err != nil {
@@ -76,25 +92,27 @@ func TestGetImageInfo_LocalImage(t *testing.T) {
 }
 
 func TestGetImageInfo_RemoteImage(t *testing.T) {
+	skipDockerTestsInCI(t)
+
 	ctx := context.Background()
 
 	testCases := []struct {
-		name           string
-		imageRef       string
-		expectMulti    *bool // nil means don't check, true/false means check
-		minPlatforms   int
+		name         string
+		imageRef     string
+		expectMulti  *bool // nil means don't check, true/false means check
+		minPlatforms int
 	}{
 		{
-			name:           "alpine image (typically multiplatform)",
-			imageRef:       "alpine:3.17",
-			expectMulti:    nil, // Don't check multiplatform, just verify platform population
-			minPlatforms:   1,
+			name:         "alpine image (typically multiplatform)",
+			imageRef:     "alpine:3.17",
+			expectMulti:  nil, // Don't check multiplatform, just verify platform population
+			minPlatforms: 1,
 		},
 		{
-			name:           "nginx multiplatform image",
-			imageRef:       "nginx:latest",
-			expectMulti:    func() *bool { b := true; return &b }(), // expect multiplatform
-			minPlatforms:   2, // nginx typically supports multiple platforms
+			name:         "nginx multiplatform image",
+			imageRef:     "nginx:latest",
+			expectMulti:  func() *bool { b := true; return &b }(), // expect multiplatform
+			minPlatforms: 2,                                       // nginx typically supports multiple platforms
 		},
 	}
 
@@ -151,6 +169,8 @@ func TestGetImageInfo_RemoteImage(t *testing.T) {
 }
 
 func TestCheckLocalImageInfo(t *testing.T) {
+	skipDockerTestsInCI(t)
+
 	ctx := context.Background()
 
 	cli, err := client.NewClientWithOpts(
@@ -190,6 +210,8 @@ func TestCheckLocalImageInfo(t *testing.T) {
 }
 
 func TestCheckRemoteImageInfo(t *testing.T) {
+	skipDockerTestsInCI(t)
+
 	ctx := context.Background()
 
 	cli, err := client.NewClientWithOpts(

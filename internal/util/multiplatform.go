@@ -82,7 +82,7 @@ func checkLocalImageInfo(ctx context.Context, cli *client.Client, imageRef strin
 	}
 
 	// Check if the image has a descriptor with manifest list media type
-	if inspect.Descriptor.MediaType != "" {
+	if inspect.Descriptor != nil && inspect.Descriptor.MediaType != "" {
 		info.IsMultiPlatform = isManifestListMediaType(inspect.Descriptor.MediaType)
 	}
 
