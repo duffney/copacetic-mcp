@@ -55,11 +55,9 @@ builds:
 
 archives:
   - id: default
-    format: tar.gz
-    # Use zip for Windows
-    format_overrides:
-      - goos: windows
-        format: zip
+    files:
+      - README.md
+      - LICENSE*
     name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
@@ -67,15 +65,12 @@ archives:
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
       {{- if .Arm }}v{{ .Arm }}{{ end }}
-    files:
-      - README.md
-      - LICENSE*
 
 checksum:
   name_template: "checksums.txt"
 
 snapshot:
-  name_template: "{{ incpatch .Version }}-next"
+  version_template: "{{ incpatch .Version }}-next"
 
 changelog:
   sort: asc
