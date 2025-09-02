@@ -18,10 +18,14 @@ import (
 )
 
 // NewServer creates and configures the MCP server with all tools
-func NewServer() *mcp.Server {
+func NewServer(version string) *mcp.Server {
+	if version == "" {
+		version = "dev"
+	}
+
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "copacetic-mcp",
-		Version: "v1.0.0",
+		Version: version,
 	}, nil)
 
 	// Register tools
@@ -39,8 +43,8 @@ func NewServer() *mcp.Server {
 }
 
 // Run starts the MCP server
-func Run(ctx context.Context) error {
-	server := NewServer()
+func Run(ctx context.Context, version string) error {
+	server := NewServer(version)
 	return server.Run(ctx, mcp.NewStdioTransport())
 }
 

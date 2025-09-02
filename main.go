@@ -7,6 +7,13 @@ import (
 	"github.com/duffney/copacetic-mcp/internal/mcp"
 )
 
+// Build information set by GoReleaser
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 /*
 	TODO: Patch all local images and overwrite current tag
 	TODO: Scan tool, return vulns wit sev.
@@ -15,7 +22,7 @@ import (
 */
 
 func main() {
-	if err := mcp.Run(context.Background()); err != nil {
+	if err := mcp.Run(context.Background(), version); err != nil {
 		log.Fatal(err)
 	}
 }
