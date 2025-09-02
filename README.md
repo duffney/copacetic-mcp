@@ -19,28 +19,28 @@ Download the latest release for your platform from the [releases page](https://g
 #### Linux (AMD64)
 
 ```bash
-curl -L https://github.com/duffney/copacetic-mcp/releases/latest/download/copacetic-mcp_Linux_x86_64.tar.gz | tar xz
+curl -L https://github.com/duffney/copacetic-mcp/releases/latest/download/copacetic-mcp_linux_amd64.tar.gz | tar xz
 ./copacetic-mcp-server
 ```
 
 #### Linux (ARM64)
 
 ```bash
-curl -L https://github.com/duffney/copacetic-mcp/releases/latest/download/copacetic-mcp_Linux_arm64.tar.gz | tar xz
+curl -L https://github.com/duffney/copacetic-mcp/releases/latest/download/copacetic-mcp_linux_arm64.tar.gz | tar xz
 ./copacetic-mcp-server
 ```
 
 #### macOS (AMD64)
 
 ```bash
-curl -L https://github.com/duffney/copacetic-mcp/releases/latest/download/copacetic-mcp_Darwin_x86_64.tar.gz | tar xz
+curl -L https://github.com/duffney/copacetic-mcp/releases/latest/download/copacetic-mcp_darwin_amd64.tar.gz | tar xz
 ./copacetic-mcp-server
 ```
 
 #### macOS (ARM64/Apple Silicon)
 
 ```bash
-curl -L https://github.com/duffney/copacetic-mcp/releases/latest/download/copacetic-mcp_Darwin_arm64.tar.gz | tar xz
+curl -L https://github.com/duffney/copacetic-mcp/releases/latest/download/copacetic-mcp_darwin_arm64.tar.gz | tar xz
 ./copacetic-mcp-server
 ```
 
