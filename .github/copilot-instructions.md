@@ -1,8 +1,67 @@
 # Copacetic MCP Server
 
-Copacetic MCP is a Go application that provides a Model Context Protocol (MCP) server for automated container image patching using Copacetic and Trivy. It builds cross-platform binaries for Linux, macOS, and Windows.
+## Project Overview
+Copacetic MCP is a Go application that provides a Model Context Protocol (MCP) server for automated container image patching using Copacetic and Trivy. It exposes container patching capabilities through the MCP protocol, allowing AI agents and tools to patch container image vulnerabilities programmatically.
+
+**Main commands**: MCP tools `version` and `patch`
+**Module**: `github.com/duffney/copacetic-mcp`
 
 Always reference these instructions first and fallback to search or bash commands only when you encounter unexpected information that does not match the info here.
+
+## Folder Structure
+- `main.go`: Main MCP server entry point
+- `cmd/client/main.go`: Test client for validating MCP server functionality  
+- `internal/mcp/`: MCP server setup, tool registration, and protocol handlers
+- `internal/copa/`: Copacetic command execution and container patching logic
+- `internal/trivy/`: Trivy vulnerability scanning integration
+- `internal/types/`: Shared type definitions and execution modes
+- `internal/util/`: Utility functions for multiplatform support
+- `.goreleaser.yml`: GoReleaser configuration for cross-platform releases
+- `.github/workflows/`: CI/CD automation (build.yml, release.yml)
+- `Makefile`: Development tasks and build automation
+
+## Libraries and Frameworks
+- **MCP Protocol**: `github.com/modelcontextprotocol/go-sdk/mcp` for Model Context Protocol server implementation
+- **Container Registry**: `github.com/google/go-containerregistry` for container image operations
+- **Docker Integration**: `github.com/docker/docker` for container runtime operations
+- **VEX Support**: `github.com/openvex/go-vex` for vulnerability exchange document generation
+- **External Tools**: Copacetic (copa) for patching, Trivy for vulnerability scanning
+- **Cross-platform Builds**: GoReleaser for automated multi-platform binary releases
+
+## Coding Standards
+- Follow Go best practices and standard formatting (`make fmt`)
+- Use `go vet` for static analysis validation (`make vet`)
+- Implement comprehensive error handling with wrapped errors using `fmt.Errorf`
+- Write tests for new functionality with proper Docker test environment detection
+- Use structured logging for debugging and operational visibility
+- Follow MCP protocol specifications for tool definitions and responses
+- Handle multiplatform scenarios appropriately for container operations
+
+## Key Architecture Concepts
+- **MCP Server Architecture**: Provides `version` and `patch` tools through stdin/stdout MCP protocol
+- **Execution Modes**: 
+  - `comprehensive`: Patches all available updates without vulnerability report
+  - `report-based`: Patches only vulnerabilities identified through Trivy scanning
+- **Multiplatform Support**: Handles container images across multiple architectures (amd64, arm64, etc.)
+- **External Tool Integration**: Orchestrates Copacetic and Trivy through command execution
+- **VEX Generation**: Creates Vulnerability Exchange (VEX) documents for patching results
+- **Cross-platform Binary Distribution**: Builds native binaries for Linux, macOS, and Windows
+
+## Supported Container Scenarios
+- **Single-arch images**: Direct patching of images for specific platform
+- **Multi-arch images**: Platform-specific patching while preserving other architectures  
+- **Registry Operations**: Pull, patch, and optionally push patched images
+- **Tag Management**: Automatic tagging of patched images with `-patched` suffix
+- **Vulnerability Reporting**: Integration with Trivy for security scanning
+
+## Key Functions and Components
+- `NewServer()`: Creates MCP server instance with registered tools
+- `Run()`: Starts MCP server with stdio transport
+- `Patch()`: Main patching tool that orchestrates vulnerability scanning and image patching
+- `Version()`: Returns Copacetic version information
+- `copa.Run()`: Executes Copacetic patching with proper argument construction
+- `trivy.Scan()`: Performs vulnerability scanning using Trivy
+- `DetermineExecutionMode()`: Selects appropriate patching strategy based on parameters
 
 ## Working Effectively
 
@@ -177,18 +236,18 @@ Docker tests automatically skip in CI environments (`CI` or `GITHUB_ACTIONS` env
 ```
 copacetic-mcp/
 ├── main.go                     # Main MCP server entry point
-├── cmd/client/main.go         # Test client
+├── cmd/client/main.go         # Test client for MCP server validation
 ├── internal/
-│   ├── mcp/                   # MCP server handlers and setup
-│   ├── copa/                  # Copacetic command execution
-│   ├── trivy/                 # Trivy vulnerability scanning
-│   ├── types/                 # Shared type definitions
-│   └── util/                  # Utility functions (multiplatform, etc.)
-├── .goreleaser.yml            # GoReleaser configuration
-├── .github/workflows/         # GitHub Actions workflows
-│   ├── build.yml             # Build and test on every push/PR
-│   └── release.yml           # Automated releases on tags
-└── Makefile                   # Development tasks
+│   ├── mcp/                   # MCP server handlers, tool registration, protocol implementation
+│   ├── copa/                  # Copacetic command execution and container patching orchestration
+│   ├── trivy/                 # Trivy vulnerability scanning integration
+│   ├── types/                 # Shared type definitions, execution modes, and parameters
+│   └── util/                  # Utility functions for multiplatform and cross-platform support
+├── .goreleaser.yml            # GoReleaser configuration for automated releases
+├── .github/workflows/         # GitHub Actions CI/CD automation
+│   ├── build.yml             # Continuous integration: build, test, lint on every push/PR
+│   └── release.yml           # Automated releases with cross-platform binaries on tags
+└── Makefile                   # Development tasks: build, test, format, cross-compile, release
 ```
 
 ## CI/CD Integration
