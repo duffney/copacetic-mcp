@@ -10,6 +10,11 @@
 myserver
 /bin
 
+# GoReleaser build artifacts  
+/dist/
+/completions/
+/manpages/
+
 # Test binary, built with `go test -c`
 *.test
 
