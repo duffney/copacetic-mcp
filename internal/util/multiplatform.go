@@ -8,6 +8,9 @@ import (
 	"strings"
 
 	"github.com/docker/docker/client"
+	"github.com/google/go-containerregistry/pkg/name"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
 // CopaSupportedPlatforms lists all platforms that Copa can patch
@@ -195,4 +198,77 @@ func PlatformToArch(platform string) string {
 	}
 
 	return arch
+}
+
+// ResolvePlatformSpecificDigest resolves an image reference to a platform-specific digest
+// Returns the original image reference if resolution fails or if it's already a digest reference
+func ResolvePlatformSpecificDigest(imageRef, platform string) (string, error) {
+	// Parse the image reference
+	ref, err := name.ParseReference(imageRef)
+	if err != nil {
+		return imageRef, fmt.Errorf("failed to parse image reference %s: %w", imageRef, err)
+	}
+
+	// If it's already a digest reference, return as-is
+	if _, ok := ref.(name.Digest); ok {
+		return imageRef, nil
+	}
+
+	// Only handle tag references
+	tagged, ok := ref.(name.Tag)
+	if !ok {
+		return imageRef, fmt.Errorf("unsupported reference type for %s", imageRef)
+	}
+
+	repository := tagged.RepositoryStr()
+	repository = strings.TrimPrefix(repository, "library/")
+
+	// Parse platform (e.g., "linux/amd64" -> "linux", "amd64")
+	platformParts := strings.Split(platform, "/")
+	if len(platformParts) != 2 {
+		return imageRef, fmt.Errorf("invalid platform format %s, expected OS/ARCH", platform)
+	}
+
+	// Create platform spec
+	platformSpec := v1.Platform{
+		OS:           platformParts[0],
+		Architecture: platformParts[1],
+	}
+
+	// Get the descriptor
+	desc, err := remote.Get(ref)
+	if err != nil {
+		return imageRef, fmt.Errorf("could not get manifest for %s: %w", imageRef, err)
+	}
+
+	// Try to get as manifest list/index first
+	idx, err := desc.ImageIndex()
+	if err != nil {
+		// Not a manifest list, try as single image
+		_, err := desc.Image()
+		if err != nil {
+			return imageRef, fmt.Errorf("could not parse manifest for %s: %w", imageRef, err)
+		}
+		// Single platform image, use its digest
+		digest := desc.Digest.String()
+		return fmt.Sprintf("%s@%s", repository, digest), nil
+	}
+
+	// It's a manifest list/index - find the platform-specific manifest
+	manifest, err := idx.IndexManifest()
+	if err != nil {
+		return imageRef, fmt.Errorf("could not get index manifest for %s: %w", imageRef, err)
+	}
+
+	// Find the platform-specific digest
+	for _, m := range manifest.Manifests {
+		if m.Platform != nil &&
+			m.Platform.OS == platformSpec.OS &&
+			m.Platform.Architecture == platformSpec.Architecture {
+			platformDigest := m.Digest.String()
+			return fmt.Sprintf("%s@%s", repository, platformDigest), nil
+		}
+	}
+
+	return imageRef, fmt.Errorf("could not find platform %s in manifest list", platform)
 }
