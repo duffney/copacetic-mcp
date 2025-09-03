@@ -1,8 +1,9 @@
 package types
 
 const (
-	ModeComprehensive = "comprehensive"
-	ModeReportBased   = "report-based"
+	ModeComprehensive     = "comprehensive"
+	ModeReportBased       = "report-based"
+	ModePlatformSelective = "platform-selective"
 )
 
 type ExecutionMode string
@@ -22,6 +23,37 @@ type PatchResult struct {
 	VexGenerated        bool
 }
 
+// Common base parameters shared across all patching tools
+type BasePatchParams struct {
+	Image string `json:"image" jsonschema:"the image reference of the container being patched"`
+	Tag   string `json:"patchtag" jsonschema:"the new tag for the patched image"`
+	Push  bool   `json:"push" jsonschema:"push patched image to destination registry"`
+}
+
+// ReportBasedPatchParams - patches only vulnerabilities found by Trivy scanning
+type ReportBasedPatchParams struct {
+	Image    string   `json:"image" jsonschema:"the image reference of the container being patched"`
+	Tag      string   `json:"patchtag" jsonschema:"the new tag for the patched image"`
+	Push     bool     `json:"push" jsonschema:"push patched image to destination registry"`
+	Platform []string `json:"platform,omitempty" jsonschema:"Target platform(s) for vulnerability scanning (e.g., linux/amd64,linux/arm64). Valid platforms: linux/amd64, linux/arm64, linux/riscv64, linux/ppc64le, linux/s390x, linux/386, linux/arm/v7, linux/arm/v6. If not specified, scans the host platform"`
+}
+
+// PlatformSelectivePatchParams - patches only specified platforms
+type PlatformSelectivePatchParams struct {
+	Image    string   `json:"image" jsonschema:"the image reference of the container being patched"`
+	Tag      string   `json:"patchtag" jsonschema:"the new tag for the patched image"`
+	Push     bool     `json:"push" jsonschema:"push patched image to destination registry"`
+	Platform []string `json:"platform" jsonschema:"Target platform(s) for patching (e.g., linux/amd64,linux/arm64). Valid platforms: linux/amd64, linux/arm64, linux/riscv64, linux/ppc64le, linux/s390x, linux/386, linux/arm/v7, linux/arm/v6. Only specified platforms will be patched, others will be preserved unchanged"`
+}
+
+// ComprehensivePatchParams - patches all available platforms with latest updates
+type ComprehensivePatchParams struct {
+	Image string `json:"image" jsonschema:"the image reference of the container being patched"`
+	Tag   string `json:"patchtag" jsonschema:"the new tag for the patched image"`
+	Push  bool   `json:"push" jsonschema:"push patched image to destination registry"`
+}
+
+// Legacy PatchParams struct kept for backward compatibility
 type PatchParams struct {
 	Image    string   `json:"image" jsonschema:"the image reference of the container being patched"`
 	Tag      string   `json:"patchtag" jsonschema:"the new tag for the patched image"`
@@ -36,5 +68,14 @@ func DetermineExecutionMode(params PatchParams) ExecutionMode {
 		return ModeReportBased
 	default:
 		return ModeComprehensive
+	}
+}
+
+// ConvertToBasePatchParams converts any patch params to BasePatchParams
+func ConvertToBasePatchParams(image, tag string, push bool) BasePatchParams {
+	return BasePatchParams{
+		Image: image,
+		Tag:   tag,
+		Push:  push,
 	}
 }

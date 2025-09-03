@@ -10,6 +10,34 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+func testTool(ctx context.Context, session *mcp.ClientSession, toolName string, args map[string]any) {
+	fmt.Printf("\n=== Testing %s tool ===\n", toolName)
+
+	params := &mcp.CallToolParams{
+		Name:      toolName,
+		Arguments: args,
+	}
+
+	res, err := session.CallTool(ctx, params)
+	if err != nil {
+		log.Printf("CallTool failed for %s: %v", toolName, err)
+		return
+	}
+
+	if res.IsError {
+		for _, c := range res.Content {
+			if text, ok := c.(*mcp.TextContent); ok {
+				log.Printf("%s tool failed: %s", toolName, text.Text)
+			}
+		}
+		return
+	}
+
+	for _, c := range res.Content {
+		fmt.Printf("Result: %s\n", c.(*mcp.TextContent).Text)
+	}
+}
+
 func main() {
 	ctx := context.Background()
 
@@ -48,30 +76,41 @@ func main() {
 	// Enable receiving log messages from the server
 	session.SetLevel(ctx, &mcp.SetLevelParams{Level: "debug"})
 
-	params := &mcp.CallToolParams{
-		Name: "patch",
-		// Arguments: map[string]any{"image": "alpine:3.17", "push": false, "scan": true},
-		// Report-Based Mulit-platforms
-		Arguments: map[string]any{"image": "alpine:3.17", "push": false, "scan": true, "patchtag": "mcp-test", "platform": []string{"linux/amd64", "linux/arm64"}},
-		// Arguments: map[string]any{"image": "ghcr.io/duffney/copacetic-test:latest", "push": false},
-		// Arguments: map[string]any{"image": "alpine:3.17", "patchtag": "mcp", "push": false, "scan": true},
-		// Arguments: map[string]any{"image": "alpine:3.17", "patchtag": "mcp"},
-	}
-	res, err := session.CallTool(ctx, params)
-	if err != nil {
-		log.Fatalf("CallTool failed: %v", err)
-	}
-	if res.IsError {
-		// Print error content if available
-		for _, c := range res.Content {
-			if text, ok := c.(*mcp.TextContent); ok {
-				log.Fatalf("tool failed: %s", text.Text)
-			}
-		}
-		log.Fatal("tool failed with unknown error")
-	}
-	for _, c := range res.Content {
-		fmt.Println(c.(*mcp.TextContent).Text)
-		// log.Print(c.(*mcp.TextContent).Text)
-	}
+	// Test version tool first
+	testTool(ctx, session, "version", map[string]any{})
+
+	// Test the new focused tools
+	fmt.Println("\n=== Testing New Focused Patching Tools ===")
+
+	// Test comprehensive patching (patches all platforms)
+	testTool(ctx, session, "patch-comprehensive", map[string]any{
+		"image":    "alpine:3.17",
+		"patchtag": "comprehensive-test",
+		"push":     false,
+	})
+
+	// Test platform-specific patching
+	testTool(ctx, session, "patch-platforms", map[string]any{
+		"image":    "alpine:3.17",
+		"patchtag": "platform-test",
+		"push":     false,
+		"platform": []string{"linux/amd64"},
+	})
+
+	// Test vulnerability-based patching (with scanning)
+	testTool(ctx, session, "patch-vulnerabilities", map[string]any{
+		"image":    "alpine:3.17",
+		"patchtag": "vuln-test",
+		"push":     false,
+		"platform": []string{"linux/amd64"},
+	})
+
+	// Test the legacy patch tool for comparison
+	fmt.Println("\n=== Testing Legacy Patch Tool ===")
+	testTool(ctx, session, "patch", map[string]any{
+		"image":    "alpine:3.17",
+		"patchtag": "legacy-test",
+		"push":     false,
+		"scan":     false,
+	})
 }
