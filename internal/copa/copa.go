@@ -29,8 +29,9 @@ func Run(ctx context.Context, cc *mcp.ServerSession, params types.PatchParams, r
 	// TODO: support digests
 	if tagged, ok := ref.(name.Tag); ok {
 		tag = tagged.TagStr()
-		repository = tagged.Repository.RepositoryStr()
+		repository = tagged.RepositoryStr()
 		repository = strings.TrimPrefix(repository, "library/")
+
 	}
 
 	copaArgs := []string{
