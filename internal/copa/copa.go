@@ -48,7 +48,7 @@ func Run(ctx context.Context, cc *mcp.ServerSession, params types.PatchParams, r
 
 	// Determine if a custom tag was provided
 	customTagProvided := params.Tag != ""
-	
+
 	// For platform-selective patching, we always want platform-specific behavior
 	// For vulnerability patching, we want exact tags when custom tag is provided
 	usePlatformSpecificTags := len(params.Platform) > 0 && (params.Scan || !customTagProvided)
