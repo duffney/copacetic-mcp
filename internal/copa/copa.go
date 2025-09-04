@@ -103,14 +103,14 @@ func Run(ctx context.Context, cc *mcp.ServerSession, params types.PatchParams, r
 	return vexPath, patchedImage, nil
 }
 
-// RunReportBased handles report-based patching with vulnerability scanning
+// RunReportBased handles report-based patching with an existing vulnerability report
 func RunReportBased(ctx context.Context, cc *mcp.ServerSession, params types.ReportBasedPatchParams, reportPath string) (vexPath string, patchedImage []string, err error) {
 	legacyParams := types.PatchParams{
 		Image:    params.Image,
 		Tag:      params.Tag,
 		Push:     params.Push,
-		Platform: params.Platform,
-		Scan:     true, // Always true for report-based
+		Platform: []string{}, // No platform filtering for report-based patching using existing reports
+		Scan:     true,       // Always true for report-based
 	}
 	return Run(ctx, cc, legacyParams, reportPath)
 }

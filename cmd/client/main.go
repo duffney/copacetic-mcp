@@ -76,13 +76,32 @@ func main() {
 	// Enable receiving log messages from the server
 	session.SetLevel(ctx, &mcp.SetLevelParams{Level: "debug"})
 
+	// List all available tools
+	fmt.Println("\n=== Available MCP Tools ===")
+	listRes, err := session.ListTools(ctx, &mcp.ListToolsParams{})
+	if err != nil {
+		log.Printf("Failed to list tools: %v", err)
+	} else {
+		for _, tool := range listRes.Tools {
+			fmt.Printf("- %s: %s\n", tool.Name, tool.Description)
+		}
+	}
+
 	// Test version tool first
 	testTool(ctx, session, "version", map[string]any{})
 
 	// Test the new focused tools
 	fmt.Println("\n=== Testing New Focused Patching Tools ===")
 
+	// Test the new scan-container tool first
+	fmt.Println("\n--- Testing scan-container tool ---")
+	testTool(ctx, session, "scan-container", map[string]any{
+		"image":    "alpine:3.17",
+		"platform": []string{"linux/amd64"},
+	})
+
 	// Test comprehensive patching (patches all platforms)
+	fmt.Println("\n--- Testing patch-comprehensive tool ---")
 	testTool(ctx, session, "patch-comprehensive", map[string]any{
 		"image":    "alpine:3.17",
 		"patchtag": "comprehensive-test",
@@ -90,6 +109,7 @@ func main() {
 	})
 
 	// Test platform-specific patching
+	fmt.Println("\n--- Testing patch-platforms tool ---")
 	testTool(ctx, session, "patch-platforms", map[string]any{
 		"image":    "alpine:3.17",
 		"patchtag": "platform-test",
@@ -97,12 +117,22 @@ func main() {
 		"platform": []string{"linux/amd64"},
 	})
 
-	// Test vulnerability-based patching (with scanning)
+	// Test vulnerability-based patching (should fail without report path)
+	fmt.Println("\n--- Testing patch-vulnerabilities tool (should fail without report) ---")
 	testTool(ctx, session, "patch-vulnerabilities", map[string]any{
-		"image":    "alpine:3.17",
-		"patchtag": "vuln-test",
-		"push":     false,
-		"platform": []string{"linux/amd64"},
+		"image":      "alpine:3.17",
+		"patchtag":   "vuln-test",
+		"push":       false,
+		"reportPath": "", // Empty report path should cause failure
+	})
+
+	// Test vulnerability-based patching with nonexistent report path
+	fmt.Println("\n--- Testing patch-vulnerabilities tool (should fail with invalid report) ---")
+	testTool(ctx, session, "patch-vulnerabilities", map[string]any{
+		"image":      "alpine:3.17",
+		"patchtag":   "vuln-test-2",
+		"push":       false,
+		"reportPath": "/tmp/nonexistent-report-dir",
 	})
 
 	// Test the legacy patch tool for comparison
