@@ -36,10 +36,10 @@ func NewServer(version string) *mcp.Server {
 	}, Version)
 
 	// Legacy patch tool for backward compatibility
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "patch",
-		Description: "Patch container image with copacetic (legacy - use specific patching tools instead)",
-	}, Patch)
+	// mcp.AddTool(server, &mcp.Tool{
+	// Name:        "patch",
+	// Description: "Patch container image with copacetic (legacy - use specific patching tools instead)",
+	// }, Patch)
 
 	// New focused patching tools
 	mcp.AddTool(server, &mcp.Tool{
