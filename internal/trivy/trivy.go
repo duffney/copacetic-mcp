@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/duffney/copacetic-mcp/internal/types"
-	multiplatform "github.com/duffney/copacetic-mcp/internal/util"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -53,27 +52,11 @@ func Run(ctx context.Context, cc *mcp.ServerSession, image string, platform []st
 	}
 
 	for _, p := range platform {
-		// Use the utility function to resolve platform-specific digest
-		imageWithDigest, err := multiplatform.ResolvePlatformSpecificDigest(image, p)
-		if err != nil {
-			cc.Log(ctx, &mcp.LoggingMessageParams{
-				Data:   fmt.Sprintf("Warning: Could not resolve platform-specific digest for %s on %s: %v, using original image", image, p, err),
-				Level:  "warn",
-				Logger: "copapatch",
-			})
-			imageWithDigest = image
-		} else {
-			cc.Log(ctx, &mcp.LoggingMessageParams{
-				Data:   fmt.Sprintf("Resolved %s for platform %s to digest: %s", image, p, imageWithDigest),
-				Level:  "debug",
-				Logger: "copapatch",
-			})
-		}
-
 		args := trivyArgs
+		args = append(args, "--image-src", "remote")
 		args = append(args, "--platform", p)
 		args = append(args, "-o", filepath.Join(reportPath, strings.ReplaceAll(p, "/", "-")+".json"))
-		args = append(args, imageWithDigest)
+		args = append(args, image)
 
 		cc.Log(ctx, &mcp.LoggingMessageParams{
 			Data:   "executing: " + strings.Join(append([]string{"trivy "}, args...), " "),
