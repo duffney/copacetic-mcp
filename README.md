@@ -2,13 +2,15 @@
 
 A Model Context Protocol (MCP) server for automated container patching using [Copacetic](https://github.com/project-copacetic/copacetic).
 
-## Features
+## MCP Tools
 
-- **Container Patching**: Patch container images for security vulnerabilities using Copacetic
-- **Vulnerability Scanning**: Scan images with Trivy to identify vulnerabilities
-- **Multi-platform Support**: Support for ARM64 and AMD64 architectures
-- **VEX Document Generation**: Generate VEX (Vulnerability Exploitability eXchange) documents
-- **MCP Integration**: Easy integration with MCP-compatible tools and LLMs
+This server provides the following Model Context Protocol (MCP) tools:
+
+- **`workflow-guide`**: Get patching strategy guide on which Copacetic tools to use for different container patching scenarios
+- **`scan-container`**: Scan container images for vulnerabilities using Trivy - creates vulnerability reports required for report-based patching
+- **`patch-vulnerabilities`**: Patch container image vulnerabilities using a pre-generated vulnerability report from 'scan-container' tool (RECOMMENDED approach for vulnerability-based patching)
+- **`patch-platforms`**: Patch specific container image platforms with Copa - patches only the specified platforms WITHOUT vulnerability scanning
+- **`patch-comprehensive`**: Comprehensively patch all container image platforms with Copa - patches all available platforms WITHOUT vulnerability scanning
 
 ## Installation
 
