@@ -74,6 +74,33 @@ To use copacetic-mcp with VSCode and MCP-compatible tools, add the following con
 
 Replace `/path/to/copacetic-mcp-server` with the actual path to your copacetic-mcp server binary.
 
+### Docker option (run server from a container)
+
+```jsonc
+"copacetic-mcp-docker": {
+  "command": "docker",
+  "args": [
+    "run",
+    "--rm",
+    "-i",
+    "--mount",
+    "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock",
+    "--mount",
+    "type=bind,source=${env:HOME}/.docker/config.json,target=/root/.docker/config.json",
+    "ghcr.io/duffney/copacetic-mcp:latest"
+  ],
+  "env": {
+    "DOCKER_HOST": "unix:///var/run/docker.sock"
+  }
+}
+```
+
+Notes:
+
+- Mounting the Docker socket gives the container access to the host Docker daemon; this is required for Copacetic image operations but has security implications—only run trusted images.
+- Mounting `${HOME}/.docker/config.json` allows the container to use your registry credentials for pulling/pushing images.
+- Replace `ghcr.io/duffney/copacetic-mcp:latest` with a local image tag if you build locally (e.g., `copacetic-mcp:latest`).
+
 #### Alternative: Using with Claude Desktop
 
 You can also configure copacetic-mcp for use with Claude Desktop by adding it to your MCP configuration file:
