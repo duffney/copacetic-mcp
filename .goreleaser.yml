@@ -123,17 +123,19 @@ release:
 
     For more information, see the [README](https://github.com/duffney/copacetic-mcp/blob/main/README.md).
 
-# Optional: Docker images
-# dockers:
-#   - image_templates:
-#       - "ghcr.io/duffney/copacetic-mcp:{{ .Version }}-amd64"
-#       - "ghcr.io/duffney/copacetic-mcp:latest-amd64"
-#     dockerfile: Dockerfile
-#     use: buildx
-#     build_flag_templates:
-#       - "--pull"
-#       - "--label=org.opencontainers.image.created={{.Date}}"
-#       - "--label=org.opencontainers.image.title={{.ProjectName}}"
-#       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-#       - "--label=org.opencontainers.image.version={{.Version}}"
-#       - "--platform=linux/amd64"
+# Docker images: build and push multi-arch images to GitHub Container Registry
+# This builds an image for linux/amd64 and linux/arm64 and tags it with the
+# release version and also with the `latest` tag.
+dockers:
+  - image_templates:
+      - "ghcr.io/duffney/copacetic-mcp:{{ .Version }}"
+      - "ghcr.io/duffney/copacetic-mcp:latest"
+    dockerfile: Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--platform=linux/amd64,linux/arm64"
