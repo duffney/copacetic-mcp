@@ -123,9 +123,8 @@ release:
 
     For more information, see the [README](https://github.com/duffney/copacetic-mcp/blob/main/README.md).
 
-# Docker images: build and push multi-arch images to GitHub Container Registry
-# This builds an image for linux/amd64 and linux/arm64 and tags it with the
-# release version and also with the `latest` tag.
+# Docker image: build and push single-arch (linux/amd64) image to GitHub Container Registry
+# Using single arch to simplify and ensure GHCR package associates cleanly with the repo.
 dockers:
   - image_templates:
       - "ghcr.io/duffney/copacetic-mcp:{{ .Version }}"
