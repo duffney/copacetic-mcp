@@ -460,8 +460,21 @@ func patchImageComprehensive(ctx context.Context, cc *mcp.ServerSession, params 
 
 	repository := ""
 	if tagged, ok := ref.(name.Tag); ok {
-		repository = tagged.RepositoryStr()
-		repository = strings.TrimPrefix(repository, "library/")
+		// Get the repository which includes registry hostname
+		repository = tagged.Repository.String()
+
+		// Handle Docker Hub special case: convert index.docker.io/library/image to image
+		// This maintains compatibility with existing behavior for Docker Hub images
+		if tagged.Repository.Registry.String() == "index.docker.io" {
+			repoName := tagged.Repository.RepositoryStr()
+			if strings.HasPrefix(repoName, "library/") {
+				// For official Docker Hub images, use just the image name
+				repository = strings.TrimPrefix(repoName, "library/")
+			} else {
+				// For user/org images on Docker Hub, keep the full path but use docker.io
+				repository = "docker.io/" + repoName
+			}
+		}
 	}
 	cc.Log(ctx, &mcp.LoggingMessageParams{
 		Data:   fmt.Sprintf("repository: %s", repository),
