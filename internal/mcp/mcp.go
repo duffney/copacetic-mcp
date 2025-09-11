@@ -136,25 +136,25 @@ func ScanContainer(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallT
 	}, nil
 }
 
-// TODO: feat: make images []string and loop through for patching in parallel
-func Patch(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[types.PatchParams]) (*mcp.CallToolResultFor[any], error) {
-	// Input validation
-	if params.Arguments.Image == "" {
-		return &mcp.CallToolResultFor[any]{
-			Content: []mcp.Content{&mcp.TextContent{Text: "image parameter is required"}},
-		}, fmt.Errorf("image parameter is required")
-	}
-
-	// Determine execution mode
-	mode := types.DetermineExecutionMode(params.Arguments)
-	cc.Log(ctx, &mcp.LoggingMessageParams{
-		Data:   fmt.Sprintf("Using execution mode: %s", mode),
-		Level:  "debug",
-		Logger: "copapatch",
-	})
-
-	return patchImage(ctx, cc, params.Arguments, mode)
-}
+// // TODO: feat: make images []string and loop through for patching in parallel
+// func Patch(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[types.PatchParams]) (*mcp.CallToolResultFor[any], error) {
+// 	// Input validation
+// 	if params.Arguments.Image == "" {
+// 		return &mcp.CallToolResultFor[any]{
+// 			Content: []mcp.Content{&mcp.TextContent{Text: "image parameter is required"}},
+// 		}, fmt.Errorf("image parameter is required")
+// 	}
+//
+// 	// Determine execution mode
+// 	mode := types.DetermineExecutionMode(params.Arguments)
+// 	cc.Log(ctx, &mcp.LoggingMessageParams{
+// 		Data:   fmt.Sprintf("Using execution mode: %s", mode),
+// 		Level:  "debug",
+// 		Logger: "copapatch",
+// 	})
+//
+// 	return patchImage(ctx, cc, params.Arguments, mode)
+// }
 
 // PatchVulnerabilities performs report-based patching using an existing vulnerability report
 // NOTE: This tool requires that 'scan-container' has been run first to generate the vulnerability report
@@ -179,12 +179,6 @@ func PatchVulnerabilities(ctx context.Context, cc *mcp.ServerSession, params *mc
 		}, fmt.Errorf("report directory does not exist: %s", params.Arguments.ReportPath)
 	}
 
-	cc.Log(ctx, &mcp.LoggingMessageParams{
-		Data:   fmt.Sprintf("Using existing vulnerability report for patching: %s", params.Arguments.ReportPath),
-		Level:  "info",
-		Logger: "copapatch",
-	})
-
 	return patchImageReportBased(ctx, cc, params.Arguments)
 }
 
@@ -205,20 +199,6 @@ func PatchPlatforms(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 		}, fmt.Errorf("at least one platform must be specified for platform-selective patching")
 	}
 
-	// Workflow validation - warn if this might not be the intended tool
-	cc.Log(ctx, &mcp.LoggingMessageParams{
-		Data:   "Using platform-selective patching - this will patch specified platforms WITHOUT vulnerability scanning. If you want to patch based on scan results, use 'scan-container' followed by 'patch-vulnerabilities' instead.",
-		Level:  "info",
-		Logger: "copapatch",
-	})
-
-	supportedPlatforms := multiplatform.FilterSupportedPlatforms(params.Arguments.Platform)
-	cc.Log(ctx, &mcp.LoggingMessageParams{
-		Data:   fmt.Sprintf("Using platform-selective patching for platforms: %s", strings.Join(supportedPlatforms, ", ")),
-		Level:  "debug",
-		Logger: "copapatch",
-	})
-
 	return patchImagePlatformSelective(ctx, cc, params.Arguments)
 }
 
@@ -232,12 +212,6 @@ func PatchComprehensive(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 			Content: []mcp.Content{&mcp.TextContent{Text: "image parameter is required"}},
 		}, fmt.Errorf("image parameter is required")
 	}
-
-	cc.Log(ctx, &mcp.LoggingMessageParams{
-		Data:   "Using comprehensive patching - will patch all available platforms",
-		Level:  "debug",
-		Logger: "copapatch",
-	})
 
 	return patchImageComprehensive(ctx, cc, params.Arguments)
 }
@@ -427,29 +401,11 @@ func patchImageComprehensive(ctx context.Context, cc *mcp.ServerSession, params 
 	// Determine what platforms will be patched and what images will be created
 	if imageDetails.IsLocal && imageDetails.IsMultiPlatform {
 		expectedPlatforms = multiplatform.GetAllSupportedPlatforms()
-		supportedPlatforms := strings.Join(expectedPlatforms, ", ")
-		cc.Log(ctx, &mcp.LoggingMessageParams{
-			Data:   fmt.Sprintf("Local image detected (%s). Copa will patch all %d supported platforms: %s", params.Image, len(expectedPlatforms), supportedPlatforms),
-			Level:  "info",
-			Logger: "copapatch",
-		})
 	} else if !imageDetails.IsLocal && imageDetails.IsMultiPlatform {
 		expectedPlatforms = multiplatform.FilterSupportedPlatforms(imageDetails.Platform)
-		supportedPlatforms := strings.Join(expectedPlatforms, ", ")
-		cc.Log(ctx, &mcp.LoggingMessageParams{
-			Data:   fmt.Sprintf("Remote image detected (%s). Copa will patch %d supported platforms: %s", params.Image, len(expectedPlatforms), supportedPlatforms),
-			Level:  "info",
-			Logger: "copapatch",
-		})
 	} else {
 		// Single platform image - use current platform
-		// expectedPlatforms = []string{fmt.Sprintf("%s/%s", "linux", "amd64")} // Default to common platform
 		expectedPlatforms = imageDetails.Platform
-		cc.Log(ctx, &mcp.LoggingMessageParams{
-			Data:   fmt.Sprintf("Single platform image detected (%s). Copa will patch for current platform.", params.Image),
-			Level:  "info",
-			Logger: "copapatch",
-		})
 	}
 
 	// Calculate expected image names based on platforms and tag
@@ -476,11 +432,6 @@ func patchImageComprehensive(ctx context.Context, cc *mcp.ServerSession, params 
 			}
 		}
 	}
-	cc.Log(ctx, &mcp.LoggingMessageParams{
-		Data:   fmt.Sprintf("repository: %s", repository),
-		Level:  "info",
-		Logger: "copapatch",
-	})
 
 	// Build expected image list
 	if imageDetails.IsMultiPlatform {
@@ -543,15 +494,17 @@ func formatPatchSuccess(result *types.PatchResult) string {
 	if result.VexGenerated {
 		lines = append(lines, fmt.Sprintf("Vulnerabilities fixed: %d", result.NumFixedVulns))
 		lines = append(lines, fmt.Sprintf("Packages updated: %d", result.UpdatedPackageCount))
-		lines = append(lines, "✓ Vulnerability-based patching completed")
-	} else {
-		lines = append(lines, "✓ Platform-based patching completed (no vulnerability scanning performed)")
 	}
 
 	if len(result.PatchedImage) > 0 {
-		images := strings.Join(result.PatchedImage, ", ")
-		lines = append(lines, "Multiplatform image detected. Copa creates separate images for each supported platform.")
-		lines = append(lines, fmt.Sprintf("New patched image(s): %s", images))
+		if len(result.PatchedImage) == 1 {
+			lines = append(lines, fmt.Sprintf("New patched image: %s", result.PatchedImage[0]))
+		} else {
+			lines = append(lines, "New patched images:")
+			for _, image := range result.PatchedImage {
+				lines = append(lines, fmt.Sprintf("  • %s", image))
+			}
+		}
 	} else {
 		lines = append(lines, fmt.Sprintf("New patched image(s): %s", result.PatchedImage))
 	}
