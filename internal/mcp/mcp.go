@@ -233,13 +233,6 @@ func PatchComprehensive(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 		}, fmt.Errorf("image parameter is required")
 	}
 
-	// Workflow validation - warn about comprehensive patching approach
-	cc.Log(ctx, &mcp.LoggingMessageParams{
-		Data:   "Using comprehensive patching - this will patch ALL available platforms WITHOUT vulnerability scanning. If you want to patch based on scan results, use 'scan-container' followed by 'patch-vulnerabilities' instead.",
-		Level:  "info",
-		Logger: "copapatch",
-	})
-
 	cc.Log(ctx, &mcp.LoggingMessageParams{
 		Data:   "Using comprehensive patching - will patch all available platforms",
 		Level:  "debug",
@@ -436,7 +429,7 @@ func patchImageComprehensive(ctx context.Context, cc *mcp.ServerSession, params 
 		expectedPlatforms = multiplatform.GetAllSupportedPlatforms()
 		supportedPlatforms := strings.Join(expectedPlatforms, ", ")
 		cc.Log(ctx, &mcp.LoggingMessageParams{
-			Data:   fmt.Sprintf("Local multiplatform image detected (%s). Copa will patch all %d supported platforms: %s", params.Image, len(expectedPlatforms), supportedPlatforms),
+			Data:   fmt.Sprintf("Local image detected (%s). Copa will patch all %d supported platforms: %s", params.Image, len(expectedPlatforms), supportedPlatforms),
 			Level:  "info",
 			Logger: "copapatch",
 		})
@@ -444,13 +437,14 @@ func patchImageComprehensive(ctx context.Context, cc *mcp.ServerSession, params 
 		expectedPlatforms = multiplatform.FilterSupportedPlatforms(imageDetails.Platform)
 		supportedPlatforms := strings.Join(expectedPlatforms, ", ")
 		cc.Log(ctx, &mcp.LoggingMessageParams{
-			Data:   fmt.Sprintf("Remote multiplatform image detected (%s). Copa will patch %d supported platforms: %s", params.Image, len(expectedPlatforms), supportedPlatforms),
+			Data:   fmt.Sprintf("Remote image detected (%s). Copa will patch %d supported platforms: %s", params.Image, len(expectedPlatforms), supportedPlatforms),
 			Level:  "info",
 			Logger: "copapatch",
 		})
 	} else {
 		// Single platform image - use current platform
-		expectedPlatforms = []string{fmt.Sprintf("%s/%s", "linux", "amd64")} // Default to common platform
+		// expectedPlatforms = []string{fmt.Sprintf("%s/%s", "linux", "amd64")} // Default to common platform
+		expectedPlatforms = imageDetails.Platform
 		cc.Log(ctx, &mcp.LoggingMessageParams{
 			Data:   fmt.Sprintf("Single platform image detected (%s). Copa will patch for current platform.", params.Image),
 			Level:  "info",
@@ -469,13 +463,23 @@ func patchImageComprehensive(ctx context.Context, cc *mcp.ServerSession, params 
 		repository = tagged.RepositoryStr()
 		repository = strings.TrimPrefix(repository, "library/")
 	}
+	cc.Log(ctx, &mcp.LoggingMessageParams{
+		Data:   fmt.Sprintf("repository: %s", repository),
+		Level:  "info",
+		Logger: "copapatch",
+	})
 
 	// Build expected image list
-	if len(expectedPlatforms) > 1 || imageDetails.IsMultiPlatform {
+	if imageDetails.IsMultiPlatform {
 		// Multiplatform: each platform gets architecture suffix
 		for _, platform := range expectedPlatforms {
+			// [duffney/multiplat:-amd64
 			arch := multiplatform.PlatformToArch(platform)
-			expectedImages = append(expectedImages, fmt.Sprintf("%s:%s-%s", repository, params.Tag, arch))
+			if params.Tag == "" {
+				expectedImages = append(expectedImages, fmt.Sprintf("%s:%s-%s", repository, "patched", arch))
+			} else {
+				expectedImages = append(expectedImages, fmt.Sprintf("%s:%s-%s", repository, params.Tag, arch))
+			}
 		}
 	} else {
 		// Single platform: exact tag
@@ -500,17 +504,6 @@ func patchImageComprehensive(ctx context.Context, cc *mcp.ServerSession, params 
 	)
 
 	successMsg := formatPatchSuccess(result)
-
-	// Add multiplatform explanation if applicable
-	if len(expectedPlatforms) > 1 || imageDetails.IsMultiPlatform {
-		exampleArch1 := multiplatform.PlatformToArch(expectedPlatforms[0])
-		exampleArch2 := "arm64" // Default second example
-		if len(expectedPlatforms) > 1 {
-			exampleArch2 = multiplatform.PlatformToArch(expectedPlatforms[1])
-		}
-		successMsg += fmt.Sprintf("\n\nNote: Multiplatform image detected. Copa creates separate images for each supported platform with architecture suffixes (e.g., -%s, -%s, etc.)",
-			exampleArch1, exampleArch2)
-	}
 
 	return &mcp.CallToolResultFor[any]{
 		Content: []mcp.Content{&mcp.TextContent{Text: successMsg}},
@@ -544,6 +537,7 @@ func formatPatchSuccess(result *types.PatchResult) string {
 
 	if len(result.PatchedImage) > 0 {
 		images := strings.Join(result.PatchedImage, ", ")
+		lines = append(lines, "Multiplatform image detected. Copa creates separate images for each supported platform.")
 		lines = append(lines, fmt.Sprintf("New patched image(s): %s", images))
 	} else {
 		lines = append(lines, fmt.Sprintf("New patched image(s): %s", result.PatchedImage))
