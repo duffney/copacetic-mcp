@@ -75,49 +75,49 @@ func NewServer(version string) *mcp.Server {
 // Run starts the MCP server
 func Run(ctx context.Context, version string) error {
 	server := NewServer(version)
-	return server.Run(ctx, mcp.NewStdioTransport())
+	return server.Run(ctx, &mcp.StdioTransport{})
 }
 
-func Version(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[types.Ver]) (*mcp.CallToolResultFor[any], error) {
+func Version(ctx context.Context, req *mcp.CallToolRequest, args types.Ver) (*mcp.CallToolResult, any, error) {
 	cmd := exec.Command("copa", "--version")
 	output, err := cmd.Output()
 	if err != nil {
 		log.Fatal(err)
 	}
-	params.Arguments.Version = string(output)
-	return &mcp.CallToolResultFor[any]{
-		Content: []mcp.Content{&mcp.TextContent{Text: params.Arguments.Version}},
-	}, nil
+	version := string(output)
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: version}},
+	}, nil, nil
 }
 
-func WorkflowGuide(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[map[string]interface{}]) (*mcp.CallToolResultFor[any], error) {
+func WorkflowGuide(ctx context.Context, req *mcp.CallToolRequest, args map[string]interface{}) (*mcp.CallToolResult, any, error) {
 	guidance := getWorkflowGuidance()
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: guidance}},
-	}, nil
+	}, nil, nil
 }
 
 // ScanContainer performs vulnerability scanning on a container image using Trivy
-func ScanContainer(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[types.ScanParams]) (*mcp.CallToolResultFor[any], error) {
+func ScanContainer(ctx context.Context, req *mcp.CallToolRequest, args types.ScanParams) (*mcp.CallToolResult, any, error) {
 	// Input validation
-	if params.Arguments.Image == "" {
-		return &mcp.CallToolResultFor[any]{
+	if args.Image == "" {
+		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "image parameter is required"}},
-		}, fmt.Errorf("image parameter is required")
+		}, nil, fmt.Errorf("image parameter is required")
 	}
 
-	cc.Log(ctx, &mcp.LoggingMessageParams{
-		Data:   fmt.Sprintf("Starting vulnerability scan for image: %s", params.Arguments.Image),
+	req.Session.Log(ctx, &mcp.LoggingMessageParams{
+		Data:   fmt.Sprintf("Starting vulnerability scan for image: %s", args.Image),
 		Level:  "info",
 		Logger: "trivy",
 	})
 
 	// Perform the vulnerability scan
-	scanResult, err := trivy.Scan(ctx, cc, params.Arguments)
+	scanResult, err := trivy.Scan(ctx, req.Session, args)
 	if err != nil {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Vulnerability scan failed: %v", err)}},
-		}, err
+		}, nil, err
 	}
 
 	// Format the scan results with clearer workflow guidance
@@ -131,9 +131,9 @@ func ScanContainer(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallT
 	resultMsg.WriteString("\n\nNOTE: Do NOT use 'patch-platforms' or 'patch-comprehensive' if you want to patch based on these scan results.")
 	resultMsg.WriteString("\nThose tools are for patching WITHOUT vulnerability scanning.")
 
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: resultMsg.String()}},
-	}, nil
+	}, nil, nil
 }
 
 // // TODO: feat: make images []string and loop through for patching in parallel
@@ -158,65 +158,68 @@ func ScanContainer(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallT
 
 // PatchVulnerabilities performs report-based patching using an existing vulnerability report
 // NOTE: This tool requires that 'scan-container' has been run first to generate the vulnerability report
-func PatchVulnerabilities(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[types.ReportBasedPatchParams]) (*mcp.CallToolResultFor[any], error) {
+func PatchVulnerabilities(ctx context.Context, req *mcp.CallToolRequest, args types.ReportBasedPatchParams) (*mcp.CallToolResult, any, error) {
 	// Input validation
-	if params.Arguments.Image == "" {
-		return &mcp.CallToolResultFor[any]{
+	if args.Image == "" {
+		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "image parameter is required"}},
-		}, fmt.Errorf("image parameter is required")
+		}, nil, fmt.Errorf("image parameter is required")
 	}
 
-	if params.Arguments.ReportPath == "" {
-		return &mcp.CallToolResultFor[any]{
+	if args.ReportPath == "" {
+		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "reportPath parameter is required. You must run the 'scan-container' tool first to generate a vulnerability report, then provide the report directory path here."}},
-		}, fmt.Errorf("reportPath parameter is required - run 'scan-container' tool first")
+		}, nil, fmt.Errorf("reportPath parameter is required - run 'scan-container' tool first")
 	}
 
 	// Verify the report path exists and contains reports
-	if _, err := os.Stat(params.Arguments.ReportPath); os.IsNotExist(err) {
-		return &mcp.CallToolResultFor[any]{
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Report directory does not exist: %s. Please run 'scan-container' tool first to generate vulnerability reports.", params.Arguments.ReportPath)}},
-		}, fmt.Errorf("report directory does not exist: %s", params.Arguments.ReportPath)
+	if _, err := os.Stat(args.ReportPath); os.IsNotExist(err) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Report directory does not exist: %s. Please run 'scan-container' tool first to generate vulnerability reports.", args.ReportPath)}},
+		}, nil, fmt.Errorf("report directory does not exist: %s", args.ReportPath)
 	}
 
-	return patchImageReportBased(ctx, cc, params.Arguments)
+	result, err := patchImageReportBased(ctx, req.Session, args)
+	return result, nil, err
 }
 
 // PatchPlatforms performs platform-selective patching
 // NOTE: This tool should only be used when NO vulnerability scanning is desired and specific platforms need patching
 // If you want to patch based on vulnerability scan results, use 'patch-vulnerabilities' instead
-func PatchPlatforms(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[types.PlatformSelectivePatchParams]) (*mcp.CallToolResultFor[any], error) {
+func PatchPlatforms(ctx context.Context, req *mcp.CallToolRequest, args types.PlatformSelectivePatchParams) (*mcp.CallToolResult, any, error) {
 	// Input validation
-	if params.Arguments.Image == "" {
-		return &mcp.CallToolResultFor[any]{
+	if args.Image == "" {
+		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "image parameter is required"}},
-		}, fmt.Errorf("image parameter is required")
+		}, nil, fmt.Errorf("image parameter is required")
 	}
 
-	if len(params.Arguments.Platform) == 0 {
-		return &mcp.CallToolResultFor[any]{
+	if len(args.Platform) == 0 {
+		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "at least one platform must be specified for platform-selective patching"}},
-		}, fmt.Errorf("at least one platform must be specified for platform-selective patching")
+		}, nil, fmt.Errorf("at least one platform must be specified for platform-selective patching")
 	}
 
-	return patchImagePlatformSelective(ctx, cc, params.Arguments)
+	result, err := patchImagePlatformSelective(ctx, req.Session, args)
+	return result, nil, err
 }
 
 // PatchComprehensive performs comprehensive patching of all available platforms
 // NOTE: This tool patches ALL available platforms WITHOUT vulnerability scanning
 // If you want to patch based on vulnerability scan results, use 'scan-container' followed by 'patch-vulnerabilities' instead
-func PatchComprehensive(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[types.ComprehensivePatchParams]) (*mcp.CallToolResultFor[any], error) {
+func PatchComprehensive(ctx context.Context, req *mcp.CallToolRequest, args types.ComprehensivePatchParams) (*mcp.CallToolResult, any, error) {
 	// Input validation
-	if params.Arguments.Image == "" {
-		return &mcp.CallToolResultFor[any]{
+	if args.Image == "" {
+		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "image parameter is required"}},
-		}, fmt.Errorf("image parameter is required")
+		}, nil, fmt.Errorf("image parameter is required")
 	}
 
-	return patchImageComprehensive(ctx, cc, params.Arguments)
+	result, err := patchImageComprehensive(ctx, req.Session, args)
+	return result, nil, err
 }
 
-func patchImage(ctx context.Context, cc *mcp.ServerSession, params types.PatchParams, mode types.ExecutionMode) (*mcp.CallToolResultFor[any], error) {
+func patchImage(ctx context.Context, cc *mcp.ServerSession, params types.PatchParams, mode types.ExecutionMode) (*mcp.CallToolResult, error) {
 	var reportPath, vexPath string
 	var patchedImage []string
 	var numFixedVulns, updatedPackageCount int
@@ -302,13 +305,13 @@ func patchImage(ctx context.Context, cc *mcp.ServerSession, params types.PatchPa
 
 	successMsg := formatPatchSuccess(result)
 
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: successMsg}},
 	}, nil
 }
 
 // patchImageReportBased handles report-based patching using an existing vulnerability report
-func patchImageReportBased(ctx context.Context, cc *mcp.ServerSession, params types.ReportBasedPatchParams) (*mcp.CallToolResultFor[any], error) {
+func patchImageReportBased(ctx context.Context, cc *mcp.ServerSession, params types.ReportBasedPatchParams) (*mcp.CallToolResult, error) {
 	// Use the provided report path instead of scanning
 	reportPath := params.ReportPath
 
@@ -352,13 +355,13 @@ func patchImageReportBased(ctx context.Context, cc *mcp.ServerSession, params ty
 	successMsg := formatPatchSuccess(result)
 	successMsg += fmt.Sprintf("\n\nNote: Used existing vulnerability report from: %s", reportPath)
 
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: successMsg}},
 	}, nil
 }
 
 // patchImagePlatformSelective handles platform-selective patching
-func patchImagePlatformSelective(ctx context.Context, cc *mcp.ServerSession, params types.PlatformSelectivePatchParams) (*mcp.CallToolResultFor[any], error) {
+func patchImagePlatformSelective(ctx context.Context, cc *mcp.ServerSession, params types.PlatformSelectivePatchParams) (*mcp.CallToolResult, error) {
 	supportedPlatforms := multiplatform.FilterSupportedPlatforms(params.Platform)
 	cc.Log(ctx, &mcp.LoggingMessageParams{
 		Data:   fmt.Sprintf("Patching platforms: %s", strings.Join(supportedPlatforms, ", ")),
@@ -383,13 +386,13 @@ func patchImagePlatformSelective(ctx context.Context, cc *mcp.ServerSession, par
 	)
 
 	successMsg := formatPatchSuccess(result)
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: successMsg}},
 	}, nil
 }
 
 // patchImageComprehensive handles comprehensive patching of all platforms
-func patchImageComprehensive(ctx context.Context, cc *mcp.ServerSession, params types.ComprehensivePatchParams) (*mcp.CallToolResultFor[any], error) {
+func patchImageComprehensive(ctx context.Context, cc *mcp.ServerSession, params types.ComprehensivePatchParams) (*mcp.CallToolResult, error) {
 	imageDetails, err := multiplatform.GetImageInfo(ctx, params.Image)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get image info: %w", err)
@@ -469,7 +472,7 @@ func patchImageComprehensive(ctx context.Context, cc *mcp.ServerSession, params 
 
 	successMsg := formatPatchSuccess(result)
 
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: successMsg}},
 	}, nil
 }

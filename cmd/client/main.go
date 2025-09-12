@@ -54,8 +54,8 @@ func initMCPClient() error {
 	client = mcp.NewClient(
 		&mcp.Implementation{Name: "copamcp-cli", Version: "v1.0.0"},
 		&mcp.ClientOptions{
-			LoggingMessageHandler: func(ctx context.Context, session *mcp.ClientSession, params *mcp.LoggingMessageParams) {
-				fmt.Printf("[server log][%s] %v\n", params.Level, params.Data)
+			LoggingMessageHandler: func(ctx context.Context, req *mcp.LoggingMessageRequest) {
+				fmt.Printf("[server log][%s] %v\n", req.Params.Level, req.Params.Data)
 			},
 		},
 	)
@@ -77,14 +77,17 @@ func initMCPClient() error {
 		}
 	}()
 
-	transport := mcp.NewCommandTransport(cmd)
-	session, err = client.Connect(ctx, transport)
+	transport := &mcp.CommandTransport{Command: cmd}
+	session, err = client.Connect(ctx, transport, nil)
 	if err != nil {
 		return fmt.Errorf("failed to connect to MCP server: %v", err)
 	}
 
 	// Enable receiving log messages from the server
-	session.SetLevel(ctx, &mcp.SetLevelParams{Level: "debug"})
+	err = session.SetLoggingLevel(ctx, &mcp.SetLoggingLevelParams{Level: "debug"})
+	if err != nil {
+		log.Printf("Warning: failed to set logging level: %v", err)
+	}
 
 	return nil
 }
